@@ -22,7 +22,10 @@ func TestProviderSelection(t *testing.T) {
 		{"x11", "xfce", model.ProviderX11},
 		{"wayland", "ubuntu", model.ProviderGnomeWayland},
 		{"wayland", "gnome", model.ProviderGnomeWayland},
-		{"wayland", "KDE", model.ProviderNone}, // FR-3.13: not in the first release
+		{"wayland", "ubuntu:GNOME", model.ProviderGnomeWayland},
+		{"wayland", "", model.ProviderGnomeWayland}, // logind may not know the desktop; not evidence of another one
+		{"wayland", "KDE", model.ProviderNone},      // FR-3.13: not in the first release
+		{"wayland", "plasma", model.ProviderNone},
 		{"tty", "", model.ProviderNone},
 		{"mir", "", model.ProviderNone},
 	}

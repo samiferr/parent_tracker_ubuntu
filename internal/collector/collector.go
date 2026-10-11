@@ -84,7 +84,13 @@ func ProviderFor(s SessionInfo) model.Provider {
 	case model.SessionX11:
 		return model.ProviderX11
 	case model.SessionWayland:
-		if IsGnome(s.Desktop) {
+		// logind's Desktop is whatever the display manager put in the session's
+		// PAM environment, and it can be empty even on GNOME. An empty value is
+		// not evidence of another desktop, so it is treated as GNOME: if the
+		// extension is not there the agent says so ("extension missing"), which
+		// is more useful than giving up. Only a named non-GNOME desktop (KDE,
+		// COSMIC, ...) is left without app tracking.
+		if IsGnome(s.Desktop) || strings.TrimSpace(s.Desktop) == "" {
 			return model.ProviderGnomeWayland
 		}
 	}

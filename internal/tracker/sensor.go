@@ -2,6 +2,7 @@ package tracker
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/samiferr/parent_tracker_ubuntu/internal/agentproto"
@@ -209,7 +210,11 @@ func Describe(reason, user string, s collector.SessionInfo) (message, nextStep s
 	case ReasonTTY:
 		return "App tracking is not available in a text console session.", "Screen time is still recorded."
 	case ReasonUnsupportedDesk:
-		return fmt.Sprintf("App tracking is not available in %s's %s on this desktop.", user, kind), "Screen time is still recorded."
+		on := "on this desktop"
+		if d := strings.TrimSpace(s.Desktop); d != "" {
+			on = fmt.Sprintf("on this desktop (%q)", d)
+		}
+		return fmt.Sprintf("App tracking is not available in %s's %s %s.", user, kind, on), "Screen time is still recorded."
 	}
 	return fmt.Sprintf("App tracking limited in %s's %s.", user, kind), "Run `parent-tracker doctor` for details."
 }
