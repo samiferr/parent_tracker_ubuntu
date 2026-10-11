@@ -13,6 +13,10 @@
 | NFR-1.5 | SHOULD | Sampling interval is configurable (default 5 s; range 1–60 s). |
 | NFR-1.6 | SHOULD | Dashboard page loads in < 1 s for 30 days of data on commodity hardware. |
 | NFR-1.7 | MAY | Battery impact acceptable on laptops (wakeup batching). |
+| NFR-1.8 | MUST | The live view adds no meaningful load: the daemon publishes state from memory (no extra database read per client per tick); one open dashboard costs < 0.1% of a core and a few KB/s. Total remains within NFR-1.1/1.2. |
+| NFR-1.9 | MUST | Live push must never block or slow the sampling/write path; a slow or stuck client is dropped, not waited for. |
+| NFR-1.10 | MUST | The number of simultaneous live connections is bounded (default 10); excess clients get a clear "too many live viewers" response and fall back to polling. |
+| NFR-1.11 | SHOULD | Hourly history queries (one day, or a 30-day heatmap) return in < 300 ms on commodity hardware; they read hourly aggregates, not raw samples. |
 
 ## 3.2 Reliability & durability
 
@@ -29,12 +33,14 @@
 
 | ID | Priority | Requirement |
 | --- | --- | --- |
-| NFR-3.1 | MUST | Ubuntu **22.04 LTS** and **24.04 LTS** (and current LTS derivatives) supported. |
-| NFR-3.2 | MUST | GNOME desktop supported. |
-| NFR-3.3 | MUST | **Both X11 and Wayland** sessions supported, with documented capability degradation on each. |
-| NFR-3.4 | SHOULD | KDE Plasma / XFCE supported at a basic level (session/app tracking); untested DEs must fail gracefully. |
+| NFR-3.1 | MUST | **Ubuntu 24.04 LTS and newer only.** Ubuntu 24.04 LTS is the oldest supported release; later LTS and interim releases are supported as they ship. **Ubuntu 22.04 LTS and anything older are explicitly unsupported** — not built for, not tested, no fixes. |
+| NFR-3.2 | MUST | GNOME desktop supported (GNOME Shell 46 or newer, the 24.04 baseline). |
+| NFR-3.3 | MUST | **Wayland and X11** sessions supported where the release offers them, with documented capability degradation on each. Wayland is the primary target; X11 is supported on 24.04 and on desktops/flavours that still ship an X11 session. |
+| NFR-3.4 | SHOULD | KDE Plasma / XFCE supported at a basic level (session/app tracking) on official Ubuntu flavours built on 24.04 or newer; untested DEs must fail gracefully. |
 | NFR-3.5 | MUST | x86_64 and arm64 architectures. |
 | NFR-3.6 | SHOULD | No hard dependency on deprecated stack (e.g., works without X11 tooling on Wayland). |
+| NFR-3.7 | MUST | The code may assume the 24.04 baseline — systemd 255 and glibc 2.39 — and carries **no compatibility shims** for older releases. |
+| NFR-3.8 | MUST | An unsupported OS fails **early and clearly**: `apt` refuses to install the package on a release older than 24.04 (versioned dependencies, NFR-6.8), and `parent-tracker doctor` reports "unsupported OS" with the upgrade hint if the binaries are run anyway. |
 
 ## 3.4 Security
 
@@ -69,6 +75,8 @@
 | NFR-6.5 | MUST | Open configuration format (TOML/JSON) with documented schema. |
 | NFR-6.6 | SHOULD | Source builds reproducibly; CI runs unit/integration tests. |
 | NFR-6.7 | MAY | Auto-update channel / signed releases. |
+| NFR-6.8 | MUST | The `.deb` declares versioned dependencies matching the baseline (`systemd (>= 255)`, and `libc6 (>= 2.39)` if dynamically linked) so that installation on Ubuntu 22.04 or older fails at the `apt`/`dpkg` dependency check, before anything is installed or enabled. |
+| NFR-6.9 | MUST | Schema migrations that introduce hourly history (new tables) are additive and **backfill** from existing intervals/samples where they still exist, without losing or altering existing data. |
 
 ## 3.7 Observability & logging
 

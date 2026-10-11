@@ -3,6 +3,12 @@
 Maps the requirements in docs/02 and docs/03 to the Go implementation this repo
 currently contains. Legend: **Done**, **Partial**, **Not started**.
 
+> **2026-10-11 docs update.** Three changes were specified in the docs only (no
+> code yet): the **real-time dashboard**, **per-hour history**, and the
+> **Ubuntu 24.04-and-newer-only** support policy. Their rows below are marked
+> **Not started (specified)** and name the *planned* places they would live;
+> those names are proposals, not existing code.
+
 ## Repository layout
 
 ```
@@ -63,6 +69,8 @@ packaging/                 systemd unit, tmpfiles, .deb build, example config
 | FR-6.4 | Authenticated, loopback | Done | `internal/server/auth.go`, config validation |
 | FR-6.5 | CSV/PDF export | Partial | CSV via `report`; JSON via `export`; PDF not started |
 | FR-6.6 | Daily digest | Partial | alert engine can fire; scheduled digest not built |
+| FR-6.8–6.16 | Real-time dashboard (live "Now" card, SSE + polling fallback, freshness indicator, `server.live`) | Not started (specified) | planned: in-memory live hub fed by the tracker loop; `GET /api/live`, `GET /api/live/stream`; Live card in `internal/server/web` |
+| FR-6.20–6.29 | Per-hour history (hourly buckets, per-hour apps, hourly screen, `report --by hour`) | Not started (specified) | planned: `hourly_usage` / `hourly_app_usage` tables + migration/backfill in `internal/storage`; hourly step in `internal/rollup`; `GET /api/hourly`; `internal/cli` report flag |
 | FR-7.1/7.2 | Alerts + channels | Done (ntfy/webhook/desktop) | `internal/alert` |
 | FR-7.3 | Rate limiting | Done | `fireOnceToday`, `CountRecentAlerts` |
 | FR-8.1 | CLI | Done | `internal/cli` |
@@ -76,17 +84,20 @@ packaging/                 systemd unit, tmpfiles, .deb build, example config
 | FR-10.2 | Export/delete | Done | `export`, `delete` CLI |
 | FR-10.3 | Child self-view | Done | `parent-tracker self` over the local control socket (`internal/control`) |
 | FR-10.4 | Real deletion | Done | `DeleteUserDataBefore` |
+| FR-10.5 | Hourly data covered by export / delete / self-view | Not started (specified) | follows FR-6.20–6.29; `DeleteUserDataBefore`, `export` and `internal/control` must learn the new tables |
 
 ## Non-functional requirements
 
 | ID | Requirement | Status | Notes |
 | --- | --- | --- | --- |
 | NFR-1.1/1.2 | Low CPU/RAM | Likely | single ticker, batched writes; needs real-hardware measurement |
+| NFR-1.8–1.11 | Live-view cost bounds, bounded clients, hourly query latency | Not started (specified) | applies once the live hub and hourly rollup exist |
 | NFR-2.1 | No data loss | Done | WAL + orphan-interval recovery |
 | NFR-2.2 | Collector isolation | Done | errors logged per collector; health recorded |
 | NFR-2.3 | Clean restart | Done | `CloseOrphanIntervals` |
 | NFR-2.4 | Clock changes | Done | gaps ignored, negative durations clamped |
-| NFR-3.1/3.3 | 22.04/24.04, X11+Wayland | Partial | X11 full; Wayland degrades app tracking |
+| NFR-3.1/3.3 | Ubuntu 24.04+ only; Wayland + X11 | Partial | X11 full; Wayland degrades app tracking. Policy is now 24.04+ (22.04 dropped in the docs); any 22.04 references in packaging/CI still need removing |
+| NFR-3.7/3.8 | No legacy shims; early, clear failure on unsupported OS (`doctor` OS check) | Not started (specified) | `doctor` has no OS-version check yet |
 | NFR-4.1/4.2 | Least privilege, file modes | Done | root + sandbox; db 0600, config 0640 |
 | NFR-4.3 | Loopback + auth | Done | enforced by config validation + auth |
 | NFR-4.6 | systemd hardening | Done | directives in unit file |
@@ -95,6 +106,8 @@ packaging/                 systemd unit, tmpfiles, .deb build, example config
 | NFR-6.1 | .deb packaging | Done | `packaging/build-deb.sh` |
 | NFR-6.2 | Non-clobbering upgrade | Done | config generated only if absent |
 | NFR-6.4 | Schema migration + backup | Partial | migrations yes; automatic pre-upgrade backup TODO |
+| NFR-6.8 | `.deb` versioned dependencies (`systemd >= 255`, `libc6 >= 2.39` if dynamic) so install is refused below 24.04 | Not started (specified) | `packaging/` control file to be updated |
+| NFR-6.9 | Additive hourly-history migration with backfill | Not started (specified) | — |
 | NFR-7.1 | Structured logs | Done | log/slog to stderr/journald |
 
 ## Deliberate gaps / next work
@@ -109,3 +122,10 @@ packaging/                 systemd unit, tmpfiles, .deb build, example config
 5. **Automatic backup before migration** and **encryption at rest**.
 6. **Dashboard settings UI** — config is read-only in `/api/config`; editing is
    via the CLI for now.
+7. **Ubuntu 24.04+ baseline enforcement** — versioned `Depends` in the `.deb`,
+   `doctor` OS check, removal of 22.04 from CI/test matrices (Roadmap Phase 8,
+   step 1).
+8. **Per-hour history** — tables, rollup, migration/backfill, API, dashboard
+   screen, CLI, export/delete/self coverage (Phase 8, step 2).
+9. **Real-time dashboard** — live hub, SSE + polling fallback, Live card,
+   `server.live` / `server.live_max_clients` (Phase 8, step 3).

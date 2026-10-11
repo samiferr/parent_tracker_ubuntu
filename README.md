@@ -37,6 +37,31 @@ An MVP is implemented in Go and builds/tests cleanly on Linux (Go 1.24+):
 Not yet built: Wayland app tracking, screenshots, search-term capture, and
 enforcement (time limits). These are deliberately phased.
 
+### Specified next (documented, not yet implemented)
+
+- **Real-time dashboard** — a live "Now" card (current state, foreground app,
+  running totals) that updates by itself over Server-Sent Events, with a polling
+  fallback and a clear Live / Stale indicator. Status only: never screen
+  content. See [04 §4.11](docs/04-architecture.md#411-live-pipeline-real-time-dashboard).
+- **Per-hour history** — usage by local hour for any day, a day × hour heatmap
+  for 7/30 days, per-hour top apps, and `parent-tracker report --by hour`.
+  Kept for 1 year by default. See
+  [04 §4.12](docs/04-architecture.md#412-hourly-rollup) and
+  [05 – Data Model](docs/05-data-model.md).
+
+Both are tracked in [docs/11-implementation-status.md](docs/11-implementation-status.md)
+and scheduled as Phase 8 in the [roadmap](docs/09-roadmap.md).
+
+## Supported platform
+
+**Ubuntu 24.04 LTS or newer — only.** Ubuntu 22.04 LTS and older are not
+supported and are not tested. The baseline is systemd 255, glibc 2.39 and
+GNOME Shell 46. Ubuntu 25.10 and later offer a Wayland-only GNOME session; see
+[docs/03 §3.3](docs/03-non-functional-requirements.md#33-compatibility) and
+[docs/04 §4.10](docs/04-architecture.md#410-platform-baseline-ubuntu-2404-and-newer).
+The `.deb` is specified to refuse installation on older releases (versioned
+dependencies, NFR-6.8); on a 22.04 machine, upgrade Ubuntu to 24.04 first.
+
 ## Architecture in one picture
 
 ```
@@ -44,9 +69,11 @@ enforcement (time limits). These are deliberately phased.
         ├─ session collector ──► systemd-logind (D-Bus)   ─┐
         ├─ app collector ─────► xprop / EWMH (X11)          │
         ├─ tracker loop ──────► activity intervals + samples│
-        ├─ rollup / retention ► per-app daily aggregates    ├─► SQLite (WAL)
+        ├─ rollup / retention ► daily + hourly* aggregates  ├─► SQLite (WAL)
         ├─ alert engine ──────► ntfy / webhook / desktop    │   /var/lib/parent-tracker
+        ├─ live hub* ────────► in-memory state → SSE        │
         └─ dashboard (chi) ───► 127.0.0.1:8787 (auth)      ─┘
+                                                      * specified, not yet built
 ```
 
 A single always-on daemon owns storage and logic. Application-level collection
@@ -54,7 +81,8 @@ on Wayland will use a per-session helper in a later phase.
 
 ## Build from source
 
-Requires Go 1.24+ (tested with 1.27) and, for packaging, `dpkg-deb`.
+Requires Go 1.24+ (tested with 1.27) and, for packaging, `dpkg-deb`. Target
+platform: Ubuntu 24.04 or newer.
 
 ```bash
 make build            # -> bin/parent-trackerd, bin/parent-tracker
@@ -88,6 +116,7 @@ parent-tracker config set alerts.channel ntfy
 parent-tracker config set alerts.ntfy_url https://ntfy.sh/my-topic
 parent-tracker report --user alice --from 2026-10-01 --to 2026-10-07
 parent-tracker report --user alice --format csv
+parent-tracker report --user alice --by hour   # per-hour table (planned, docs/07)
 parent-tracker self                  # what is recorded about *you* (no root)
 parent-tracker export --out backup.json
 parent-tracker delete --user alice --before 2026-01-01 --yes
@@ -115,10 +144,13 @@ screenshots = false    # not implemented yet
 [retention]
 window_samples = "720h"  # 30 days
 app_usage = "17520h"     # 2 years
+hourly_usage = "8760h"   # 1 year of per-hour history (planned)
 
 [server]
 listen = "127.0.0.1:8787"
 allow_lan = false        # LAN exposure is opt-in and warned about
+live = true              # real-time dashboard updates (planned)
+live_max_clients = 10    # cap on simultaneous live viewers (planned)
 
 [alerts]
 enabled = false
@@ -136,6 +168,9 @@ The full annotated example lives at
 - Tracking is scoped to an explicit allowlist.
 - The database is owner-only (`0600`); the config is `0640`.
 - The dashboard binds to loopback and requires a password; LAN access is opt-in.
+- The live view shows status only (state, foreground app, totals) — never screen
+  content — and the child's `parent-tracker self` states that it exists and shows
+  the same per-hour history the parent sees.
 - Stopping the service or hitting a tracking gap is recorded and surfaced.
 - `apt purge` deletes recorded data; `apt remove` keeps it.
 

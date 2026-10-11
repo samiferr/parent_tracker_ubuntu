@@ -7,7 +7,7 @@ These are decisions still to be made. Each has a **recommendation** and an
 
 | # | Assumption | If wrong, what changes |
 | --- | --- | --- |
-| A1 | Single family PC, Ubuntu 22.04/24.04, GNOME. | Compatibility and collector work expands. |
+| A1 | Single family PC, **Ubuntu 24.04 or newer**, GNOME. (22.04 and older are explicitly unsupported.) | Compatibility and collector work expands; supporting 22.04 again would need GNOME 42-era Shell/systemd 249 fallbacks. |
 | A2 | Parent has root/sudo on the PC and owns it. | Legal/ethical basis changes; project may be inappropriate. |
 | A3 | Child is a minor; tracking is disclosed, not covert. | Privacy design (self-view, disclosure) would be dropped — not recommended. |
 | A4 | "Usage" = active, unlocked, non-idle screen time. | Definition of core metric changes. |
@@ -51,6 +51,15 @@ These are decisions still to be made. Each has a **recommendation** and an
     to the ethics of the project).
 12. **Data volume / retention defaults** — 30 vs 90 days raw.
     *Recommendation:* 30 days raw, aggregates longer; configurable.
+13. **Hourly history retention** — 30 days (like raw samples), 1 year, or 2 years
+    (like daily app aggregates)?
+    *Recommendation:* **1 year** (`retention.hourly_usage`). Long enough to see
+    school-term vs. holiday patterns; shorter than daily aggregates because an
+    hour-by-hour pattern is more revealing than a daily total (least collection).
+14. **Wayland-only newer releases** — Ubuntu 25.10+ ships GNOME without an X11
+    session, so the X11 `xprop` path covers less over time.
+    *Recommendation:* treat the Wayland GNOME helper (Q2) as the top technical
+    priority; live and hourly views must degrade cleanly without per-app data.
 
 ## Next steps to unblock implementation
 
@@ -64,3 +73,6 @@ These are decisions still to be made. Each has a **recommendation** and an
 | Date | Decision | Rationale |
 | --- | --- | --- |
 | 2026-10-09 | Docs created; scope = monitoring (not covert, not enforcement-first). | Transparency-first stance; enforcement deferred. |
+| 2026-10-11 | **Supported platform is Ubuntu 24.04 and newer only.** 22.04 and older are unsupported; the package must refuse to install there (NFR-6.8). | One baseline (systemd 255, glibc 2.39, GNOME Shell 46) removes legacy shims and halves the test matrix. |
+| 2026-10-11 | **Real-time dashboard** added to scope: in-memory live hub, Server-Sent Events with polling fallback, status-only (no screen content). | SSE is one-way, needs no extra dependency, reconnects automatically; WebSockets add complexity for no benefit here. Keeps the "no screen streaming" non-goal intact. |
+| 2026-10-11 | **Per-hour history** added to scope: `hourly_usage` / `hourly_app_usage`, 1-year default retention, shown in dashboard, CLI, export and the child's self-view. | Answers "when", not just "how much"; stored as aggregates so it outlives raw samples; child sees everything the parent sees (SEC-43). |

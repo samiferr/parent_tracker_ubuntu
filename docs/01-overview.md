@@ -21,12 +21,18 @@ transparent to the child and controllable by the parent.
   opt-in path to sync elsewhere.
 - **G6** — Be honest and transparent: the monitored child can see what is being
   collected.
+- **G7** — Show what is happening **right now** (a live dashboard) without the
+  parent having to reload anything.
+- **G8** — Show *when* the PC was used: usage broken down **per hour**, for a
+  single day and as a history over weeks, not only daily totals.
 
 ## 1.3 Non-goals (out of scope for now, may revisit)
 
 - Covert/silent surveillance.
 - Keystroke logging or reading message contents.
-- Real-time screen streaming / remote control.
+- Real-time **screen** streaming / remote control. (The live dashboard in G7
+  shows status only — current state, foreground app, running totals — never
+  screen content, keystrokes or window contents.)
 - Blocking or filtering network traffic (this is monitoring, not a firewall).
 - Mobile/Android or Windows/macOS support.
 - Multi-tenant / commercial SaaS operation.
@@ -45,6 +51,8 @@ transparent to the child and controllable by the parent.
 ### In scope
 
 - One physical Ubuntu desktop PC, multiple local user accounts.
+- **Ubuntu 24.04 LTS and newer only** (see
+  [03 – Non-Functional Requirements](03-non-functional-requirements.md#33-compatibility)).
 - A **monitored-users allowlist**; accounts not on it are never tracked.
 - Session, activity, application, and (phase 2) web/screenshot collection.
 - Local storage, local reporting, optional alerting.
@@ -56,6 +64,8 @@ transparent to the child and controllable by the parent.
 - Central management of many PCs (single-machine only in MVP).
 - Cloud accounts.
 - Deep content inspection (OCR, chat content).
+- **Ubuntu 22.04 LTS and older releases** — not supported and not tested; the
+  package refuses to install there. Upgrade the OS to 24.04 or newer first.
 
 ## 1.6 Terminology
 
@@ -69,6 +79,8 @@ transparent to the child and controllable by the parent.
 | **Sample** | A periodic measurement (e.g., active window every 5 s) used to derive durations. |
 | **Active time** | Time when a session is unlocked, non-idle, and the screen is on. |
 | **Dashboard** | Local web UI for viewing data and configuring the service. |
+| **Live view** | The part of the dashboard that updates by itself (current state, foreground app, running totals) without a page reload. |
+| **Hourly bucket** | One local wall-clock hour (e.g. 15:00–15:59) of a given day, holding the time spent in each state and in each app during that hour. |
 | **Retention** | How long raw events are kept before aggregation/expiry. |
 
 ## 1.7 Success metrics
@@ -80,6 +92,10 @@ transparent to the child and controllable by the parent.
 - **S4** — Zero data loss across unclean shutdown (events persist or are
   reconstructable).
 - **S5** — Install → working dashboard in under 10 minutes.
+- **S6** — A change of state (active → locked, app switch) appears on an open
+  dashboard within one sampling interval plus 2 s, with no manual reload.
+- **S7** — A parent can answer "what time of day did my kid use the PC, and
+  what were they doing at 21:00?" from the dashboard in < 60 seconds.
 
 ## 1.8 Regulatory / ethical stance
 

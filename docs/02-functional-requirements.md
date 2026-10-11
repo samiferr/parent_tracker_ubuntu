@@ -73,6 +73,35 @@ Requirement IDs are stable and referenced by tests and the roadmap.
 | FR-6.6 | SHOULD | Configurable **daily digest** summary (e.g., generated at 21:00) delivered by the alert channel. |
 | FR-6.7 | MAY | Per-app and per-category limits shown as "budget used / remaining". |
 
+### 2.6.1 Real-time dashboard
+
+| ID | Priority | Requirement |
+| --- | --- | --- |
+| FR-6.8 | MUST | The dashboard has a **live view** for the selected monitored user, updated automatically with no page reload: current session state (**active / idle / locked / screen-off / logged-out**), current foreground app, how long the current state has lasted, and today's running active/idle/locked totals. |
+| FR-6.9 | MUST | A state or app change is reflected on an open dashboard within **one sampling interval + 2 s** (default ≤ 7 s). |
+| FR-6.10 | MUST | Live updates are pushed by the daemon over a single authenticated, same-origin connection (**Server-Sent Events**); if streaming is unavailable the dashboard transparently falls back to polling a snapshot endpoint at the sampling interval (minimum 5 s). |
+| FR-6.11 | MUST | The live view always shows its own freshness: a **Live** indicator while updates arrive, a **Reconnecting / Stale** indicator with "last updated hh:mm:ss" when they stop, and automatic reconnection with back-off. A stale view never presents old numbers as current. |
+| FR-6.12 | MUST | Live totals include the **in-progress interval** (clamped to the last good sample so a stalled collector does not inflate them) and must agree with the stored daily figures after the next rollup (±1 sampling interval). |
+| FR-6.13 | MUST | The timeline strip on the Today screen extends to "now" as the day progresses, and tracking gaps appear live. |
+| FR-6.14 | MUST | The live view exposes **only data that is already recorded**: window titles appear only if `collectors.window_title` is on; on Wayland without app tracking it shows "app unavailable" rather than guessing. No screen content, ever. |
+| FR-6.15 | SHOULD | The live feature can be switched off (`server.live`) and its concurrent-connection count is bounded (`server.live_max_clients`). |
+| FR-6.16 | MAY | A browser tab-title / favicon badge showing the current state, so a pinned tab acts as a glanceable indicator. |
+
+### 2.6.2 Per-hour history
+
+| ID | Priority | Requirement |
+| --- | --- | --- |
+| FR-6.20 | MUST | Record and report usage **per local hour**: for each user and hour, time in `active`, `idle`, `locked/screen-off`, and untracked (**gap**) time. |
+| FR-6.21 | MUST | Activity intervals that cross an hour boundary are **split exactly at the boundary** (10:50–11:20 counts 10 min in the 10:00 hour and 20 min in the 11:00 hour). |
+| FR-6.22 | MUST | Summing the 24 hourly buckets of a day equals that day's daily active time, exactly. Daily and hourly figures come from the same source and can never disagree. |
+| FR-6.23 | MUST | Per-hour **application** breakdown: the top apps (foreground time) in each hour, where app tracking works; the same map-and-merge rules as FR-3.3/3.4. |
+| FR-6.24 | MUST | Hourly history is kept **longer than raw samples** (default 1 year, configurable via `retention.hourly_usage`), so "when" patterns survive raw-sample expiry. |
+| FR-6.25 | MUST | Hour boundaries follow the machine's **local timezone**, including DST transitions (23- and 25-hour days) and zones with non-whole-hour offsets. Gaps and the in-progress hour are shown honestly, never as zero usage. |
+| FR-6.26 | MUST | Dashboard **Hourly history** screen: (a) a single-day 24-hour chart with per-hour drill-down to apps, and (b) a multi-day hour-of-day heatmap (7 / 30 days) showing when usage typically happens. |
+| FR-6.27 | SHOULD | `parent-tracker report --by hour` and the hourly API/CSV output give the same numbers as the dashboard. |
+| FR-6.28 | SHOULD | Hours after the configured `alerts.bedtime` are visually marked in the hourly views. |
+| FR-6.29 | MAY | Typical-week view: average active minutes per hour for each weekday. |
+
 ## 2.7 Alerts & notifications
 
 | ID | Priority | Requirement |
@@ -111,3 +140,4 @@ Requirement IDs are stable and referenced by tests and the roadmap.
 | FR-10.2 | MUST | Admin can export all data (JSON/CSV) and **delete** data for a user or date range. |
 | FR-10.3 | SHOULD | The child can see (read-only) their own recorded data. |
 | FR-10.4 | MUST | Deletion is real (records removed), not just hidden. |
+| FR-10.5 | MUST | Hourly history (FR-6.20…6.25) is covered by export, by `delete`, and by the child's self-view exactly like every other recorded dataset — nothing is stored that the child cannot see or the admin cannot delete. |
