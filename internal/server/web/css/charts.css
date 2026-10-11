@@ -1,0 +1,54 @@
+/* Chart fills. Lumen allows palette steps (such as blue-900) only inside charts
+   and illustrations, so every palette reference in the dashboard lives here.
+   States differ by lightness AND texture, never by hue alone (DS-13). The steps
+   chosen reach 3:1 against the page in both themes. */
+
+.seg { display: block; width: 100%; flex: none; }
+.seg--active { background-color: var(--blue-900); }
+.seg--idle {
+  background-color: var(--gray-600);
+  background-image: radial-gradient(circle at center, var(--background-layer-2) 28%, transparent 32%);
+  background-size: var(--spacing-100) var(--spacing-100);
+}
+.seg--locked, .seg--screen_off {
+  background-color: var(--purple-800);
+  background-image: repeating-linear-gradient(90deg, transparent 0 var(--spacing-75), var(--background-layer-2) var(--spacing-75) var(--spacing-85));
+}
+.seg--screen_off { background-color: var(--cyan-800); }
+.seg--gap {
+  background-color: transparent;
+  background-image: repeating-linear-gradient(135deg, var(--orange-800) 0 var(--spacing-50), transparent var(--spacing-50) var(--spacing-100));
+  box-shadow: inset 0 0 0 var(--border-width-100) var(--orange-800);
+}
+
+/* swatches in legends reuse the same fills */
+.swatch { display: inline-block; width: var(--spacing-300); height: var(--spacing-300); border-radius: var(--corner-radius-75); flex: none; vertical-align: middle; }
+.swatch--accent { background-color: var(--blue-900); }
+
+/* timeline strip segments */
+.strip__seg.seg--active { background-color: var(--blue-900); }
+
+/* sequential ramp for the heatmap: one hue, five steps from light to dark */
+.heat__cell.lvl-1 { background-color: var(--blue-300); }
+.heat__cell.lvl-2 { background-color: var(--blue-500); }
+.heat__cell.lvl-3 { background-color: var(--blue-700); }
+.heat__cell.lvl-4 { background-color: var(--blue-900); }
+.heat__cell.lvl-5 { background-color: var(--blue-1100); }
+.heat__cell--gap {
+  background-image: repeating-linear-gradient(135deg, var(--orange-800) 0 var(--spacing-50), transparent var(--spacing-50) var(--spacing-100));
+}
+.swatch.lvl-1 { background-color: var(--blue-300); } .swatch.lvl-2 { background-color: var(--blue-500); }
+.swatch.lvl-3 { background-color: var(--blue-700); } .swatch.lvl-4 { background-color: var(--blue-900); }
+.swatch.lvl-5 { background-color: var(--blue-1100); }
+
+/* daily bars */
+.dbar__fill { display: block; width: 100%; background-color: var(--blue-900); flex: none; }
+.dbar__fill--idle { background-color: var(--gray-600); }
+
+/* donut slices, ordered from dark to light: arcs are stroked, swatches filled */
+.donut__arc.slice-0 { stroke: var(--blue-1100); } .donut__arc.slice-1 { stroke: var(--blue-900); }
+.donut__arc.slice-2 { stroke: var(--blue-700); } .donut__arc.slice-3 { stroke: var(--blue-500); }
+.donut__arc.slice-4 { stroke: var(--blue-300); }
+.swatch.slice-0 { background-color: var(--blue-1100); } .swatch.slice-1 { background-color: var(--blue-900); }
+.swatch.slice-2 { background-color: var(--blue-700); } .swatch.slice-3 { background-color: var(--blue-500); }
+.swatch.slice-4 { background-color: var(--blue-300); }

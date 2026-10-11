@@ -1,0 +1,80 @@
+#!/bin/sh
+# Turns the Parent Tracker GNOME Shell extension on (or off) for every account
+# on this PC, and locks the setting so a standard user cannot drop it from their
+# own settings. Run by the package; safe to run again:
+#
+#   sudo /usr/lib/parent-tracker/gnome-extension-setup enable
+#   sudo /usr/lib/parent-tracker/gnome-extension-setup disable
+#
+# It writes a system-wide dconf default (and a lock) for
+# org.gnome.shell enabled-extensions. The default is the list GNOME would use
+# anyway (Ubuntu's own extensions included) with this extension added, so other
+# extensions keep working. Nothing here touches any user's own files.
+#
+# PARENT_TRACKER_ROOT prefixes every path (used by the tests).
+set -eu
+
+UUID=parent-tracker@samiferr.github.io
+ROOT=${PARENT_TRACKER_ROOT:-}
+DB_DIR=$ROOT/etc/dconf/db/local.d
+FILE=$DB_DIR/90-parent-tracker
+LOCK=$DB_DIR/locks/90-parent-tracker
+PROFILE=$ROOT/etc/dconf/profile/user
+
+update_dconf() {
+  if command -v dconf >/dev/null 2>&1 && [ -z "$ROOT" ]; then
+    dconf update || echo "parent-tracker: 'dconf update' failed; run it by hand." >&2
+  elif [ -z "$ROOT" ]; then
+    echo "parent-tracker: install dconf-cli and run 'sudo dconf update' to finish enabling the GNOME extension." >&2
+  fi
+}
+
+# The extension list GNOME would use without this package: the system dconf
+# databases first, the schema default otherwise.
+current_list() {
+  p=$(mktemp)
+  printf 'system-db:local\n' > "$p"
+  v=$(DCONF_PROFILE="$p" gsettings get org.gnome.shell enabled-extensions 2>/dev/null) || v=
+  rm -f "$p"
+  printf '%s' "$v"
+}
+
+case "${1:-}" in
+enable)
+  if ! command -v gsettings >/dev/null 2>&1; then
+    exit 0 # no GSettings: this is not a GNOME desktop
+  fi
+  v=$(current_list)
+  case "$v" in
+    "") exit 0 ;;                      # no GNOME Shell schema installed: nothing to do
+    "@as []"|"[]") list="['$UUID']" ;;
+    *"'$UUID'"*) list=$v ;;
+    *"]") list="${v%]}, '$UUID']" ;;
+    *) echo "parent-tracker: unexpected enabled-extensions value: $v" >&2; exit 1 ;;
+  esac
+  mkdir -p "$DB_DIR/locks" "$(dirname "$PROFILE")"
+  {
+    echo "# Written by parent-tracker. Re-run /usr/lib/parent-tracker/gnome-extension-setup enable to refresh."
+    echo "[org/gnome/shell]"
+    echo "enabled-extensions=$list"
+  } > "$FILE"
+  {
+    echo "/org/gnome/shell/enabled-extensions"
+    echo "/org/gnome/shell/disabled-extensions"
+  } > "$LOCK"
+  if [ ! -f "$PROFILE" ]; then
+    printf 'user-db:user\nsystem-db:local\n' > "$PROFILE"
+  elif ! grep -q '^system-db:local$' "$PROFILE"; then
+    printf 'system-db:local\n' >> "$PROFILE"
+  fi
+  update_dconf
+  ;;
+disable)
+  rm -f "$FILE" "$LOCK"
+  update_dconf
+  ;;
+*)
+  echo "usage: $0 enable|disable" >&2
+  exit 2
+  ;;
+esac

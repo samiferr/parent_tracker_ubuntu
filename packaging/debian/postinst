@@ -1,0 +1,48 @@
+#!/bin/sh
+set -e
+# DPKG_ROOT is set by dpkg for a chrootless install (and by the package tests);
+# it is empty on a normal system.
+ROOT=${DPKG_ROOT:-}
+
+case "$1" in
+configure)
+  # Create the configuration only if there is none: an administrator's file is
+  # never replaced on upgrade.
+  if [ ! -e "$ROOT/etc/parent-tracker/config.toml" ]; then
+    install -d -m 0755 "$ROOT/etc/parent-tracker"
+    install -m 0640 "$ROOT/usr/share/doc/parent-tracker/config.toml.example" "$ROOT/etc/parent-tracker/config.toml"
+  fi
+  if [ -z "$ROOT" ] && command -v systemd-tmpfiles >/dev/null 2>&1; then
+    systemd-tmpfiles --create /usr/lib/tmpfiles.d/parent-tracker.conf || true
+  fi
+  if command -v systemctl >/dev/null 2>&1; then
+    # Enabled, not started: nothing is recorded until setup is done.
+    systemctl ${ROOT:+--root="$ROOT"} enable parent-trackerd.service >/dev/null 2>&1 || true
+    systemctl ${ROOT:+--root="$ROOT"} --global enable parent-tracker-agent.service >/dev/null 2>&1 || true
+    if [ -z "$ROOT" ] && [ -d /run/systemd/system ]; then
+      systemctl daemon-reload || true
+      # An upgrade restarts a service that was already running.
+      if [ -n "$2" ] && systemctl is-active --quiet parent-trackerd.service; then
+        systemctl try-restart parent-trackerd.service || true
+      fi
+    fi
+  fi
+  PARENT_TRACKER_ROOT=$ROOT "$ROOT/usr/lib/parent-tracker/gnome-extension-setup" enable || true
+
+  if [ -z "$2" ]; then
+    cat <<'MSG'
+
+Parent Tracker is installed. Nothing is recorded yet.
+
+Next steps:
+  1. sudo parent-tracker setup          choose who is monitored; read and acknowledge the notice
+  2. sudo systemctl enable --now parent-trackerd
+  3. Ask each monitored user to log out and in once, so GNOME Shell loads the extension.
+  4. Run: parent-tracker doctor
+
+MSG
+  fi
+  ;;
+esac
+
+exit 0

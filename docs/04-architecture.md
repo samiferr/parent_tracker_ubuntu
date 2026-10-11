@@ -345,16 +345,23 @@ and still record screen time.
   entries for the GNOME majors the project has tested (46 and newer). A GNOME
   release the extension does not list will not load it, so each new Ubuntu/GNOME
   release is a tracked compatibility task with its own CI check.
-- Behaviour: subscribes to focus changes of the shell's display
-  (`notify::focus-window`) and sends `{app id, app name, pid}` — plus the window
-  title **only when the agent tells it title capture is on** — to the agent
-  (session bus or a local socket). It has **no network access, writes no files,
+- Behaviour (as built): it owns `org.parenttracker.Sensor` on the user's session
+  bus and answers two methods. `GetFocus` looks at the shell's focused window at
+  that moment and returns `{available, app id, app name, pid, title}`; the title
+  is returned **only while the agent has switched title capture on** with
+  `SetTitleCapture`. It does not subscribe to focus changes and keeps nothing
+  between calls, so the agent's poll interval is the sampling interval and each
+  call doubles as the heartbeat. It has **no network access, writes no files,
   reads no pixels and no input**. It does only what is needed to answer "which
   app is in front?".
 - Deployment (to be validated on 24.04 in a Phase 2 spike): files under
-  `/usr/share/gnome-shell/extensions/<uuid>/`, enabled for monitored users through
-  a **system-wide dconf default** for `org.gnome.shell enabled-extensions`, locked
-  so a standard user cannot drop it from their own settings. GNOME Shell loads
+  `/usr/share/gnome-shell/extensions/<uuid>/`, enabled through a **system-wide
+  dconf default** for `org.gnome.shell enabled-extensions` (the list GNOME would
+  use anyway plus this extension, computed at install time by
+  `packaging/gnome-extension-setup`), locked so a standard user cannot drop it
+  from their own settings. A dconf default is per machine, not per user, so the
+  extension loads in every account's session; it is passive and only the agent,
+  which collects for monitored accounts only, ever calls it. GNOME Shell loads
   extensions at login and on Wayland cannot be restarted inside a session, so the
   monitored user must **log out and in once** after installation (`doctor` and the
   user guide say so).

@@ -1,0 +1,9 @@
+{
+  "name": "parent-tracker-ui-check",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Optional headless-browser checks of the dashboard (not part of make check)",
+  "type": "module",
+  "scripts": { "check": "node check.mjs" },
+  "dependencies": { "playwright-core": "1.56.1" }
+}

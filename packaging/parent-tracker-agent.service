@@ -1,0 +1,26 @@
+[Unit]
+Description=Parent Tracker agent (reports the application in front, for monitored accounts only)
+Documentation=https://github.com/samiferr/parent_tracker_ubuntu
+PartOf=graphical-session.target
+After=graphical-session.target
+ConditionUser=!root
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/parent-tracker-agent
+# A clean exit (this account is not monitored) is not restarted; a crash is,
+# with back-off, and the daemon records any app-sensor gap meanwhile.
+Restart=on-failure
+RestartSec=5s
+# Only seccomp-based settings: filesystem sandboxing in a user unit needs
+# unprivileged user namespaces, which Ubuntu 24.04 restricts by default.
+NoNewPrivileges=yes
+RestrictRealtime=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+# X11 (AF_UNIX/AF_INET to the X server), D-Bus (AF_UNIX) and the daemon socket.
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+SystemCallArchitectures=native
+
+[Install]
+WantedBy=graphical-session.target

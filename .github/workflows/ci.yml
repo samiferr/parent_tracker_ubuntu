@@ -1,0 +1,40 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      # The tests start a private dbus-daemon and Xvfb; they skip when missing.
+      - name: Install test tools
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends dbus xvfb dpkg
+      - name: Check (format, vet, generated files, tests with the race detector)
+        run: make check
+
+  package:
+    runs-on: ubuntu-24.04
+    needs: check
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Build the amd64 and arm64 packages
+        run: make deb-all
+      - uses: actions/upload-artifact@v4
+        with:
+          name: parent-tracker-deb
+          path: dist/*.deb

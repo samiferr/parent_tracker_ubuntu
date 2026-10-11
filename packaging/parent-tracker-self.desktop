@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=What is recorded about me
+GenericName=Parent Tracker
+Comment=Shows everything Parent Tracker has recorded about this account
+Exec=/usr/bin/parent-tracker self
+Terminal=true
+Icon=dialog-information
+Categories=System;Monitor;
+Keywords=parent;tracker;screen time;privacy;

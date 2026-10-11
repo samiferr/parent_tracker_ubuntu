@@ -21,9 +21,8 @@ These are decisions still to be made. Each has a **recommendation** and an
 
 1. **Language / stack** — Rust vs Go (both fine) vs Python prototype.
    *Recommendation:* Rust or Go for the daemon; ship a Python prototype only if
-   speed of iteration matters more than footprint. **Still open.** The docs'
-   proposed layout, build commands and package names *assume Go*; confirm or
-   change this in Phase 0.
+   speed of iteration matters more than footprint. **Resolved (2026-10-11): Go**,
+   as requested by the project owner. Static binaries, no cgo, pure-Go SQLite.
 2. **Wayland app tracking route** — GNOME Shell extension vs. relying on
    degraded signals. **Resolved (2026-10-11): GNOME Shell extension**, degrade
    elsewhere, documented in 04 §4.13. GNOME's `Introspect` window list is
@@ -68,7 +67,10 @@ These are decisions still to be made. Each has a **recommendation** and an
     technical priority; keep the X11 provider while any supported release or
     flavour offers an X11 session; live and hourly views must degrade cleanly
     without per-app data.
-15. **Lumen distribution** — Lumen currently lives as a private design-system
+15. **Lumen distribution** — **Resolved (2026-10-11):** vendored unmodified under
+    `internal/server/web/vendor/`, pinned by `LUMEN_VERSION`, with the fonts and
+    React 18 builds; `tokens.css` is generated from `tokens.json` by
+    `tools/lumen-tokens` and checked by `make check`. Original question: Lumen currently lives as a private design-system
     artifact and ships **no font files**. How does the repository get a
     reproducible, offline copy (tokens, bundle, React 18 builds, fonts)?
     *Recommendation:* a vendored snapshot under `internal/server/web/vendor/`
@@ -83,11 +85,12 @@ These are decisions still to be made. Each has a **recommendation** and an
 
 ## Next steps to unblock implementation
 
-1. Confirm Q1 (stack). Q2 (Wayland route) is decided; schedule its Phase 2 spike.
-2. Resolve Q15 (how Lumen is vendored) so the dashboard shell can be built offline.
-3. Freeze the MVP definition to **Phase 1 + Phase 2**.
-4. Pick default alert channel (Q3) and dashboard exposure (Q4).
-5. Stand up the repo skeleton and CI (Phase 0).
+1. Run the Phase 1 and Phase 2 validation spikes on a real Ubuntu 24.04 machine
+   (Wayland and Xorg): the GNOME Shell extension, the dconf lock, idle accuracy,
+   the systemd unit and a real `apt install` (see docs/11 for what is untested).
+2. Run the CI workflow once and fix what it finds.
+3. Decide what comes next: browser history (Phase 4), a daily digest and e-mail
+   alerts (Phase 3), or enforcement (Phase 6).
 
 ## Decision log
 
@@ -96,7 +99,10 @@ These are decisions still to be made. Each has a **recommendation** and an
 | 2026-10-09 | Docs created; scope = monitoring (not covert, not enforcement-first). | Transparency-first stance; enforcement deferred. |
 | 2026-10-11 | **Supported platform is Ubuntu 24.04 and newer only.** 22.04 and older are unsupported; the package must refuse to install there (NFR-6.8). | One baseline (systemd 255, glibc 2.39, GNOME Shell 46) removes legacy shims and halves the test matrix. |
 | 2026-10-11 | **Real-time dashboard** added to scope: in-memory live hub, Server-Sent Events with polling fallback, status-only (no screen content). | SSE is one-way, needs no extra dependency, reconnects automatically; WebSockets add complexity for no benefit here. Keeps the "no screen streaming" non-goal intact. |
-| 2026-10-11 | **Every implementation item is "Not started".** README and docs/11 previously described a Go MVP; none of that code is in this repository, so by owner decision it is all treated as not started. | The repository holds specification only. |
+| 2026-10-11 | **Every implementation item is "Not started".** README and docs/11 previously described a Go MVP; none of that code is in this repository, so by owner decision it is all treated as not started. | The repository held specification only. Superseded later the same day by the implementation entry below. |
 | 2026-10-11 | **Both Wayland and X11 sessions are required** (Wayland mandatory everywhere; X11 wherever offered). Session type is read per session from logind; foreground data is collected by a per-session agent using an X11 provider or the GNOME Shell extension; the X11 provider is never used on Wayland. | Wayland is the 24.04 default and the only GNOME session from 25.10; X11 remains on 24.04 and X11-only flavours. GNOME's window-list API is not available to a root daemon. |
 | 2026-10-11 | **The dashboard must be built with the Lumen design system**, vendored and served locally (docs/12). | Owner requirement; consistency and accessibility; local-only rule forbids CDN assets. |
 | 2026-10-11 | **Per-hour history** added to scope: `hourly_usage` / `hourly_app_usage`, 1-year default retention, shown in dashboard, CLI, export and the child's self-view. | Answers "when", not just "how much"; stored as aggregates so it outlives raw samples; child sees everything the parent sees (SEC-43). |
+| 2026-10-11 | **Implemented in Go** with the Lumen design system: daemon, agent, CLI, dashboard, GNOME extension and `.deb` (amd64, arm64). Status is tracked honestly in docs/11, including what has not run on real hardware. | Owner request ("implement the project using go-lang and lumen design system"). |
+| 2026-10-11 | The GNOME extension **answers on request** instead of watching focus changes. | Nothing is retained between calls; the agent's poll is also the heartbeat; less code in the shell. |
+| 2026-10-11 | Collectors that do not exist yet (`web`, `web_full_url`, `screenshots`, `devices`) are accepted in the config but **say so** when switched on (CLI, `doctor`, service log). | A parent must not believe browser history is being recorded when it is not. |

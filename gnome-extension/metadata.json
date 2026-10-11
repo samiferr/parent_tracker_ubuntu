@@ -1,0 +1,8 @@
+{
+  "uuid": "parent-tracker@samiferr.github.io",
+  "name": "Parent Tracker sensor",
+  "description": "Tells the Parent Tracker agent which application is in front, on request. It has no network access, writes no files and reads no pixels or input. Window titles are only read while the agent has turned title capture on.",
+  "shell-version": ["46", "47", "48", "49"],
+  "url": "https://github.com/samiferr/parent_tracker_ubuntu",
+  "version": 1
+}

@@ -1,0 +1,21 @@
+#!/bin/sh
+set -e
+ROOT=${DPKG_ROOT:-}
+
+case "$1" in
+remove|deconfigure)
+  if command -v systemctl >/dev/null 2>&1; then
+    if [ -z "$ROOT" ]; then
+      systemctl stop parent-trackerd.service >/dev/null 2>&1 || true
+    fi
+    systemctl ${ROOT:+--root="$ROOT"} disable parent-trackerd.service >/dev/null 2>&1 || true
+    systemctl ${ROOT:+--root="$ROOT"} --global disable parent-tracker-agent.service >/dev/null 2>&1 || true
+  fi
+  # Give every account its own extension settings back.
+  if [ -x "$ROOT/usr/lib/parent-tracker/gnome-extension-setup" ]; then
+    PARENT_TRACKER_ROOT=$ROOT "$ROOT/usr/lib/parent-tracker/gnome-extension-setup" disable || true
+  fi
+  ;;
+esac
+
+exit 0
