@@ -2,8 +2,10 @@
 
 Phased delivery. Each phase is independently useful and shippable.
 
-> **Status (2026-10-11): no phase has been started; no code exists.** See
-> [11 – Implementation Status](11-implementation-status.md).
+> **Status (2026-10-11): the first release is implemented in Go** (phases 0, 1
+> and 8 done in code; 2, 3 and 5 partly; 4, 6 and 7 not started). Nothing has
+> yet been run on a real Ubuntu desktop; the validation spikes below are still
+> to do. See [11 – Implementation Status](11-implementation-status.md).
 
 ## Phase 0 — Foundations (1–2 weeks)
 - Repo layout, language choice (open question Q1), build/CI, `.deb` skeleton for

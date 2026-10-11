@@ -2,17 +2,20 @@
 
 A complete guide to installing, configuring and using **Parent Tracker**, a
 local service that records how an Ubuntu desktop is used — screen time, idle and
-locked time, foreground applications, and (optionally) browser domains.
+locked time and foreground applications, by the hour.
 
 > **Who this is for.** This guide is written for the parent/administrator who
 > owns and administers the PC. Parent Tracker is meant for monitoring your own
 > minor child on your own device, openly, not for covert surveillance. See
 > [Privacy and legal](#18-privacy-and-legal) at the end.
 
-> **Status: not implemented yet.** Parent Tracker is currently a specification;
-> no code exists. This guide describes how the finished product is **intended**
-> to be installed and used, so every command, screen and setting below is the
-> planned interface. See the [implementation status](11-implementation-status.md).
+> **Status: first release, not yet run on a real desktop.** The commands,
+> screens and settings below exist and are tested, except where a section says
+> **Not built yet** (browser history, screenshots, device events, daily digest,
+> e-mail alerts, PDF export, time limits). The GNOME Shell extension (app
+> tracking on Wayland), the systemd units and the package have been tested only
+> against fakes, so expect to run `parent-tracker doctor` after installing and to
+> report what it finds. See the [implementation status](11-implementation-status.md).
 
 > **Supported systems.** Ubuntu **24.04 LTS and newer only** (22.04 and older
 > are not supported), on **Wayland or X11** sessions. See
@@ -59,7 +62,7 @@ Parent Tracker runs as a background system service and records, for an explicit
   directly on X11 sessions, and through a small GNOME Shell extension that the
   package installs on Wayland sessions (see
   [section 2](#2-requirements-and-capabilities)).
-- **Browser domains** (optional, off by default) — which websites were visited.
+- **Browser domains** — *Not built yet.* See [section 10](#10-browser-history).
 - **Tracking gaps** — if the service is stopped or the machine crashes, the gap
   is recorded and shown to you rather than silently hidden.
 
@@ -74,8 +77,8 @@ Everything is stored **locally** in a SQLite database. There is no cloud, no
 account, and no telemetry.
 
 It does **not**: take screenshots, read messages, record keystrokes, or filter
-network traffic (all deferred or out of scope). Daily digests, PDF export and
-time limits are planned for later phases.
+network traffic (all deferred or out of scope). Browser history, daily digests,
+e-mail alerts, PDF export and time limits are planned for later phases.
 
 ## 2. Requirements and capabilities
 
@@ -86,12 +89,12 @@ time limits are planned for later phases.
   (`sudo do-release-upgrade`), then install Parent Tracker.
 - **Either a Wayland or an X11 session.** Both are supported (see below); you do
   not have to choose one for the whole PC.
-- For application tracking on X11 sessions the package may use the `xprop` tool
-  (from `x11-utils`, installed as a *recommended* package). It is only used on
-  X11 sessions and is not needed on a Wayland-only system.
-- The service runs as root, because it must read monitored users' home
-  directories (for example browser databases), which are not world-readable. It
-  is heavily sandboxed. Reading session state itself does not need root.
+- Application tracking on X11 sessions needs no extra tools: the agent speaks
+  the X protocol itself, so nothing from `x11-utils` is required.
+- The service runs as root so that the accounts it observes cannot stop it or
+  edit its files or database. It is sandboxed with a moderate set of systemd
+  directives (no new privileges, read-only system directories). Reading session
+  state itself does not need root.
 - A small **agent** runs inside each monitored user's graphical session (as that
   user, started automatically). There is nothing to set up.
 
@@ -100,7 +103,7 @@ time limits are planned for later phases.
 | Active / idle / locked time | Yes | Yes | Yes |
 | Application (foreground) time | Yes | Yes | Not available |
 | Window titles (optional) | Yes | Yes | Not available |
-| Browser domains (optional) | Yes | Yes | Yes |
+| Browser domains (not built yet) | — | — | — |
 | Live state and running totals | Yes | Yes | Yes |
 | Live foreground app | Yes | Yes | "App unavailable" |
 | Per-hour state time | Yes | Yes | Yes |
@@ -129,10 +132,20 @@ differs is how the app in front is found:
   (and the window title, only if you turned title capture on). The extension has
   no network access and cannot see the screen, keystrokes or messages.
 
-After installing, the extension is enabled automatically for monitored users,
-but GNOME Shell only loads it at login. **Ask the child to log out and back in
-once.** Check with `parent-tracker doctor`. Until then the dashboard says "App
-tracking limited" and screen time is recorded as normal.
+After installing, the package turns the extension on for every account through
+a system-wide dconf default. It loads in every account's session but does
+nothing unless the tracker agent asks it, and the agent collects only for
+monitored accounts. GNOME Shell loads extensions at login, so **ask the child to log out and back in
+once.** Check with `parent-tracker doctor`. Until then the dashboard says "App tracking limited" and
+screen time is recorded as normal.
+
+The default is also *locked*, so a standard user cannot drop the extension from
+their own settings. The side effect is that no standard user can change which
+GNOME Shell extensions are enabled on this PC. To undo it:
+`sudo /usr/lib/parent-tracker/gnome-extension-setup disable` (and `enable` to
+put it back). The list GNOME would use anyway, Ubuntu's own extensions included,
+is kept and this one is added to it. **This has been tested against a fake
+`gsettings`, not yet on a real Ubuntu desktop.**
 
 If the extension is later disabled or removed, or the agent is stopped, the
 dashboard shows "App sensor lost" and you get an alert. Because that data is
@@ -168,9 +181,16 @@ default configuration. The package:
 - creates `/etc/parent-tracker/config.toml` from the shipped example if it does
   not already exist,
 - enables (but does not forcibly start) `parent-trackerd.service`,
-- installs the per-session agent as a systemd user unit and the GNOME Shell
-  extension system-wide, enabled by default for monitored users,
+- installs the per-session agent as a systemd user unit (enabled for all users)
+  and the GNOME Shell extension system-wide, switched on and locked through a
+  dconf default (see [section 2](#wayland-and-x11-sessions)),
+- installs a login notice for monitored users and a **What is recorded about me**
+  menu entry,
 - creates the data and runtime directories with restrictive permissions.
+
+`apt remove` stops the service and removes the units and the dconf default, and
+keeps your configuration and recorded data. `apt purge` deletes both, so run
+`parent-tracker export` first if you want a copy.
 
 **Next step:** run the first-time setup (section 4). The service will not
 collect anything until you choose which users to monitor.
@@ -182,14 +202,14 @@ collect anything until you choose which users to monitor.
 
 ### 3.2 From source
 
-The build is planned around Go (the exact toolchain version will be fixed in
-Phase 0):
+The build needs Go 1.24 or newer and nothing else (the dashboard has no build
+step):
 
 ```bash
 git clone https://github.com/samiferr/parent_tracker_ubuntu
 cd parent_tracker_ubuntu
 make build          # -> bin/parent-trackerd, bin/parent-tracker, bin/parent-tracker-agent
-make test           # optional: run the test suite
+make check          # optional: format, vet and the full test suite
 ```
 
 To produce a package from source:
@@ -313,13 +333,16 @@ Open <http://127.0.0.1:8787> and sign in with the credentials from setup.
 - **First / last activity** — when the day's use started and ended.
 - **Top applications** — the apps used most in the foreground that day, ranked
   by time.
-- **Timeline** — a colour-coded strip of the day: blue = active, amber = idle,
-  grey = locked/off. Gaps are visible.
+- **Timeline** — a strip of the day from 00:00 to 24:00: solid blue = active,
+  dotted grey = idle, purple stripes = locked, orange hatching = a tracking gap
+  (nothing was recorded). A line marks "now". Every pattern is also named in the
+  legend, so no meaning rests on colour alone.
 - **Trend** — daily active time over 7 or 30 days.
 - **Hourly history** — usage by hour of the day. See
   [Hourly history](#hourly-history).
-- **Websites** — top domains over the last 7 days (only if web tracking is
-  enabled; otherwise it explains that it is off).
+- **Apps** — time in front and time open per application over 7 or 30 days,
+  with a drawer per application. (A *Websites* panel is planned with browser
+  history; it is not built yet.)
 - **Alerts & tracking gaps** — rule hits and any time the service was not
   recording.
 
@@ -392,8 +415,9 @@ progress is drawn as "in progress" and grows live. Select an hour to see the
 **top applications** in that hour.
 
 **7- and 30-day view** — a heatmap: one row per day, one column per hour,
-darker = more active minutes. Hours after your configured `alerts.bedtime` are
-outlined, so late-night use stands out. A row of averages underneath shows the
+darker = more active minutes. Active hours after your configured `alerts.bedtime`
+are outlined, and the hour headings of the bedtime window are underlined, so
+late-night use stands out. A row of averages underneath shows the
 typical day. Select a cell to jump to that day and hour.
 
 A one-line summary sits above the chart, for example *"Most use 16:00–19:00 ·
@@ -547,6 +571,17 @@ See [section 11](#11-the-childs-self-view).
 ### `parent-tracker serve`
 Run the dashboard on its own (no collectors) — useful for debugging.
 
+`parent-tracker serve --demo [--listen 127.0.0.1:8787]` serves **made-up data**
+from a temporary database instead, so you can look around the dashboard before
+anything is recorded. The login is `parent` / `demo-password`. Nothing real is
+read or written. `make demo` does the same from a source checkout.
+
+### `parent-tracker notice`
+Print the notice that activity on this PC is recorded. With `--notify` it shows
+the notice as a desktop notification, and only if the account running it is
+monitored; the package runs that at every login (an XDG autostart entry), and
+adds a **What is recorded about me** menu entry that opens `parent-tracker self`.
+
 ### `parent-tracker completion`
 Generate a shell completion script:
 
@@ -571,7 +606,7 @@ You can edit the file directly (then `systemctl reload parent-trackerd`), or use
 | `db_name` | `tracker.db` | Database file name inside `data_dir`. |
 | `log_level` | `info` | `debug`, `info`, `warn`, `error`. |
 | `sample_interval` | `5s` | How often the machine is sampled (1s–1m). |
-| `web_import_interval` | `15m` | How often browser history is imported. |
+| `web_import_interval` | `15m` | How often browser history is imported (not built yet; no effect). |
 | `control_socket` | `/run/parent-tracker/control.sock` | Socket for the child self-view. |
 | `monitored_users` | `[]` | The allowlist. Only these accounts are recorded. |
 
@@ -582,9 +617,9 @@ You can edit the file directly (then `systemctl reload parent-trackerd`), or use
 | `session` | `true` | Login/active/idle/locked tracking. |
 | `app` | `true` | Foreground application tracking. |
 | `window_title` | `false` | Store window titles (privacy-sensitive). |
-| `web` | `false` | Import browser history. |
-| `web_full_url` | `false` | Store full URLs + page titles instead of domain-only. Requires `web`. |
-| `screenshots` | `false` | Reserved for a later phase; no effect in the first release. |
+| `web` | `false` | Import browser history. **Not built yet: no effect.** |
+| `web_full_url` | `false` | Store full URLs + page titles instead of domain-only. Requires `web`. **Not built yet: no effect.** |
+| `screenshots` | `false` | Reserved for a later phase; no effect in this release. |
 | `devices` | `false` | USB/Bluetooth device events (Phase 4); no effect before then. |
 
 ### `[retention]` — how long to keep data
@@ -659,6 +694,12 @@ Alerts in the first release cover:
 - **Tracking interrupted** — a gap or unclean stop.
 - **App sensor lost** — the agent was stopped or the GNOME Shell extension was
   disabled or missing, so app tracking stopped (screen time is unaffected).
+- **Disk space is low.**
+
+The last three are about whether the tracker can be trusted, so they are
+recorded in **Alerts & tracking gaps** even when `alerts.enabled` is `false`;
+`alerts.enabled` and `alerts.channel` decide only whether you are *told*. There is
+no e-mail channel, and no "app X was used" or "new device" rule yet.
 
 Enable the channel you want:
 
@@ -693,6 +734,12 @@ crosses a rule, while the live view lets you *look* whenever you choose. The
 
 ## 10. Browser history
 
+> **Not built yet.** This release does not read any browser's history. The
+> `collectors.web` and `collectors.web_full_url` settings are accepted so the
+> configuration file will not change later, but turning them on records nothing:
+> `config set` says so, `doctor` warns, and the service logs a warning. The rest
+> of this section describes the planned behaviour.
+
 Web history is **off by default** because it is more sensitive than screen time.
 
 ```bash
@@ -718,8 +765,8 @@ Imports run every `web_import_interval` (default 15 minutes) and are
 incremental — each run only picks up visits newer than the last import, so it is
 cheap even on a large history.
 
-The dashboard's **Websites** panel shows the top domains over the last 7 days.
-Because the service runs as root, it can read browser databases in a monitored
+The dashboard will get a **Websites** panel with the top domains over the last 7
+days. Because the service runs as root, it can read browser databases in a monitored
 user's home; other accounts are never touched.
 
 ## 11. The child's self-view
@@ -748,11 +795,13 @@ Recorded activity for ilyes — 2026-10-09
     21:00   18m
 
   Applications (last 7 days):
-    firefox                   48m
-    code                      21m
+    Firefox Web Browser        1h 05m
+    Visual Studio Code         46m
 
   Websites (last 7 days):
-    youtube.com               12 visit(s)
+    not recorded (browser history is off)
+
+  Stored about you: activity intervals 5, app usage 3, hourly app usage 9, hourly usage 3, sessions 1, window samples 1332.
 
 Your parent can see your current state and the app in front, live, and your
 usage hour by hour. It never sees your screen, keystrokes or messages.
@@ -880,16 +929,16 @@ journalctl -u parent-trackerd -n 100 --no-pager
 
 | Symptom | Likely cause and fix |
 | --- | --- |
-| Dashboard says "login is not configured" | Run `sudo parent-tracker setup` (or the service before setup). |
+| Dashboard says "Sign-in is not set up yet" | Run `sudo parent-tracker setup` to choose a password. |
 | Dashboard unreachable from another device | Loopback-only by default; set `server.listen` and `server.allow_lan true`, then restart. |
 | No application data on a **Wayland** session | The GNOME Shell extension is not loaded yet (the child has not logged out and in since installation), or it was disabled. Ask them to log out and in, then run `parent-tracker doctor`. |
-| No application data on an **X11** session | The agent cannot reach the X server, the window manager does not provide the standard active-window information, or (if the package uses it) `xprop` is missing. Check `parent-tracker doctor`. |
+| No application data on an **X11** session | The agent cannot reach the X server, or the window manager does not provide the standard active-window information (`_NET_ACTIVE_WINDOW`). Nothing extra needs installing. Check `parent-tracker doctor`. |
 | No application data, session type `tty` | A text console has no windows; only session time is recorded. |
 | "App sensor lost" | The agent was stopped or the extension disabled in the child's session. See [section 2](#wayland-and-x11-sessions). Screen time is still recorded. |
 | `doctor` says the X11 session is not available | Expected on Ubuntu 25.10 and later (Wayland-only GNOME). Not a problem. |
-| No web data | `collectors.web` is off (default), or the browser hasn't been used. |
+| No web data | Browser history is not built yet (see [section 10](#10-browser-history)). |
 | `status` shows a foreground collector `DEGRADED` | Wayland session without the extension, or X11 unreachable; see the rows above. |
-| Service won't start | `/etc/parent-tracker/config.toml` must exist (the unit has `ConditionPathExists`). Run `setup`. |
+| Service won't start | Read `journalctl -u parent-trackerd -n 50`: it names the problem, for example a missing or invalid `/etc/parent-tracker/config.toml` (unknown keys are errors) or systemd-logind not being reachable. |
 | "database … too open" in doctor | Fix with `sudo chmod 0640 /var/lib/parent-tracker/tracker.db`. |
 | Times look shifted | Day boundaries use the service's local timezone. Set the system timezone correctly. |
 | Config edit rejected | Unknown keys are errors. Run `parent-tracker config list` to see valid keys. |
@@ -924,8 +973,11 @@ sudo systemctl reload parent-trackerd
 | `/usr/lib/systemd/system/parent-trackerd.service` | systemd unit (daemon). |
 | `/usr/lib/systemd/user/parent-tracker-agent.service` | systemd user unit for the per-session agent. |
 | `/usr/share/gnome-shell/extensions/<uuid>/` | The GNOME Shell extension (Wayland sessions). |
-| `/etc/dconf/db/…` | System-wide default that enables the extension for monitored users. |
+| `/etc/dconf/db/local.d/90-parent-tracker` (and `locks/`) | System-wide default that enables and locks the extension. |
 | `/usr/lib/tmpfiles.d/parent-tracker.conf` | Runtime directory definitions. |
+| `/usr/lib/parent-tracker/gnome-extension-setup` | Turns the extension's dconf default and lock on or off. |
+| `/etc/xdg/autostart/parent-tracker-notice.desktop` | Shows the "activity is recorded" notice at login, for monitored users. |
+| `/usr/share/applications/parent-tracker-self.desktop` | The "What is recorded about me" menu entry. |
 | `/usr/share/doc/parent-tracker/` | Example config and docs. |
 | `journalctl -u parent-trackerd` | Logs. |
 

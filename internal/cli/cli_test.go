@@ -757,3 +757,23 @@ func TestOutputFollowsTheCopyRules(t *testing.T) {
 var liveDegraded = live.Degraded{Collector: "foreground", Session: "2", SessionType: "wayland", Provider: "gnome-wayland",
 	Reason: "extension_missing", Message: "App tracking limited in a Wayland session. The GNOME Shell extension is not enabled for ilyes.",
 	NextStep: "Ask ilyes to log out and back in, then run `parent-tracker doctor`."}
+
+func TestUnimplementedCollectorsAreSaidSo(t *testing.T) {
+	r := newRig(t)
+	r.configured("ilyes")
+	out := r.mustRun("config", "set", "collectors.web", "true")
+	if !strings.Contains(out, "does not collect that yet") {
+		t.Fatalf("turning on web history must say it records nothing:\n%s", out)
+	}
+	if out := r.mustRun("config", "set", "collectors.web", "false"); strings.Contains(out, "does not collect") {
+		t.Fatalf("turning it off needs no warning:\n%s", out)
+	}
+	if out := r.mustRun("config", "set", "collectors.window_title", "true"); strings.Contains(out, "does not collect") {
+		t.Fatalf("window titles are implemented:\n%s", out)
+	}
+	r.mustRun("config", "set", "collectors.screenshots", "true")
+	r.run("doctor")
+	if got := r.out.String(); !strings.Contains(got, "collectors.screenshots is on, but this release does not collect it") {
+		t.Fatalf("doctor should flag it:\n%s", got)
+	}
+}

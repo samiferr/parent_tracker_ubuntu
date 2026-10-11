@@ -10,17 +10,25 @@ the child can be shown exactly what is recorded.
 > monitor adults or devices you do not control. See
 > [docs/06-security-privacy-and-legal.md](docs/06-security-privacy-and-legal.md).
 
-## Status: specification only — no code yet
+## Status: first release implemented, not yet run on a real desktop
 
-**This repository currently contains the specification and documentation only.
-No code has been written; every implementation item is "Not started".** The
-commands, configuration keys and screens described below and in the
-[User Guide](docs/USER-GUIDE.md) are the *planned* interface, not something you
-can install today. Progress is tracked requirement by requirement in
-[docs/11-implementation-status.md](docs/11-implementation-status.md) and
-phase by phase in the [roadmap](docs/09-roadmap.md).
+The service, the agent, the CLI, the dashboard (React 18 and the **Lumen**
+design system) and the `.deb` packaging are written in Go and pass `make check`
+(about 175 test functions, with the race detector). **It has not yet been
+installed on a real Ubuntu desktop.** In particular the GNOME Shell extension
+(Wayland foreground app), the systemd units and the dconf enablement have only
+been tested against fakes and mocks, because no GNOME Shell or full systemd runs
+in the development environment.
 
-## What it is designed to do
+Not built yet: browser-history import, screenshots, device events, a daily
+digest, e-mail alerts, PDF export, time-limit enforcement, encryption at rest.
+Turning on a collector that does not exist yet records nothing, and says so.
+
+Requirement-by-requirement status, with what was and was not verified:
+[docs/11-implementation-status.md](docs/11-implementation-status.md). Phases:
+[roadmap](docs/09-roadmap.md).
+
+## What it does
 
 - A systemd service (`parent-trackerd`) with sandboxing and clean shutdown.
 - Session, idle and lock tracking via **systemd-logind**, identical on Wayland
@@ -38,24 +46,23 @@ phase by phase in the [roadmap](docs/09-roadmap.md).
   for 1 year by default. See [04 §4.12](docs/04-architecture.md#412-hourly-rollup).
 - A **child self-view** — `parent-tracker self` shows a monitored user their own
   data (including the hourly breakdown) without root.
-- Optional browser-history import (domain-only by default) and alerts via
-  ntfy / webhook / desktop.
+- Alerts via ntfy / webhook / desktop (daily limit, bedtime, tracking gaps, a lost
+  app sensor, low disk). Browser-history import is planned, not built.
 - An authenticated, local web dashboard built with the **Lumen design system**
   ([docs/12](docs/12-design-system-lumen.md)), fully self-contained (no CDN, no
   web fonts, no telemetry).
 
-Deliberately later or out of scope: screenshots, search-term capture,
-enforcement (time limits), mobile apps.
+Deliberately later or out of scope: browser history, screenshots, search-term
+capture, enforcement (time limits), mobile apps.
 
 ## Supported platform
 
 **Ubuntu 24.04 LTS or newer — only.** Ubuntu 22.04 LTS and older are not
 supported and are not tested. The baseline is systemd 255, glibc 2.39 and
-GNOME Shell 46. The `.deb` is specified to refuse installation on older releases
-(versioned dependencies, NFR-6.8); on a 22.04 machine, upgrade Ubuntu to 24.04
-first. Details: [docs/03 §3.3](docs/03-non-functional-requirements.md#33-compatibility),
+GNOME Shell 46. The `.deb` declares `systemd (>= 255)`, so `apt` refuses it on older releases
+(NFR-6.8); on a 22.04 machine, upgrade Ubuntu to 24.04 first. Details: [docs/03 §3.3](docs/03-non-functional-requirements.md#33-compatibility),
 [docs/04 §4.10](docs/04-architecture.md#410-platform-baseline-ubuntu-2404-and-newer).
-Packages are planned for **amd64 and arm64**.
+Packages are built for **amd64 and arm64**.
 
 **Both Wayland and X11 sessions are required**, and neither can be dropped:
 
@@ -85,21 +92,26 @@ being recorded. See [docs/04 §4.13](docs/04-architecture.md#413-session-types-w
  └─ dashboard ─────────► 127.0.0.1:8787 (auth) ─────┘   React 18 + Lumen, embedded assets
 ```
 
-Everything in this picture is planned. See [docs/04-architecture.md](docs/04-architecture.md).
+See [docs/04-architecture.md](docs/04-architecture.md).
 
-## Planned stack and build
+## Build
 
-The proposed layout and build commands assume **Go** (open question Q1 in
-[docs/10](docs/10-open-questions.md) — not yet confirmed). Nothing below exists
-yet.
+Go 1.24 or newer, nothing else: the dashboard has no build step (React 18, Lumen
+and the fonts are vendored, unmodified, and embedded in the daemon). Binaries
+are static (`CGO_ENABLED=0`).
 
 ```bash
 make build            # -> bin/parent-trackerd, bin/parent-tracker, bin/parent-tracker-agent
-make test
-make deb              # -> dist/parent-tracker_<version>_<arch>.deb  (amd64 and arm64)
+make check            # gofmt, go vet, generated files up to date, tests with -race
+make deb              # -> dist/parent-tracker_<version>_<arch>.deb  (needs dpkg-deb)
+make deb-all          # amd64 and arm64
+make demo             # the dashboard on made-up data at http://127.0.0.1:8787
 ```
 
-## Planned install and administration
+`make demo` runs `parent-tracker serve --demo`: nothing real is read or written,
+the login is `parent` / `demo-password`.
+
+## Install and administration
 
 ```bash
 sudo apt install ./parent-tracker_<version>_<arch>.deb
@@ -128,9 +140,11 @@ parent-tracker delete --user alice --before 2026-01-01 --yes
 Apply most changes without a restart with `sudo systemctl reload parent-trackerd`
 (SIGHUP). Changing the dashboard listen address needs a full restart.
 
-## Planned configuration
+## Configuration
 
-`/etc/parent-tracker/config.toml` (mode 0640). Only users listed in
+`/etc/parent-tracker/config.toml` (mode 0640; created from
+`/usr/share/doc/parent-tracker/config.toml.example` on first install, never
+replaced on upgrade). Only users listed in
 `monitored_users` are ever recorded. Sensitive collectors are off by default:
 
 ```toml
@@ -140,9 +154,9 @@ monitored_users = ["alice"]
 session = true
 app = true
 window_title = false   # privacy-sensitive: off by default
-web = false            # browser history import; off by default
-web_full_url = false   # store full URLs + titles instead of domain-only
-screenshots = false    # reserved; not planned for the first release
+web = false            # reserved: browser history is not implemented yet
+web_full_url = false   # reserved
+screenshots = false    # reserved; not implemented
 
 [retention]
 window_samples = "720h"  # 30 days
@@ -162,7 +176,7 @@ daily_active_limit = "0s"
 bedtime = ""
 ```
 
-A fully annotated example will live at `packaging/config.toml.example`.
+The annotated example is [`packaging/config.toml.example`](packaging/config.toml.example).
 
 ## Privacy and safety (design commitments)
 
@@ -184,7 +198,7 @@ A fully annotated example will live at `packaging/config.toml.example`.
 
 | Doc | Contents |
 | --- | --- |
-| [User Guide](docs/USER-GUIDE.md) | How the finished product is meant to be installed, configured and used |
+| [User Guide](docs/USER-GUIDE.md) | How to install, configure and use it (marks what is not built yet) |
 | [01 – Overview & Scope](docs/01-overview.md) | Problem, goals, personas, scope |
 | [02 – Functional Requirements](docs/02-functional-requirements.md) | What the system must do |
 | [03 – Non-Functional Requirements](docs/03-non-functional-requirements.md) | Performance, security, compatibility |
@@ -195,7 +209,7 @@ A fully annotated example will live at `packaging/config.toml.example`.
 | [08 – Testing & Acceptance](docs/08-testing-acceptance.md) | Acceptance criteria and test plan |
 | [09 – Roadmap](docs/09-roadmap.md) | Phased delivery |
 | [10 – Open Questions & Assumptions](docs/10-open-questions.md) | Decisions and defaults |
-| [11 – Implementation Status](docs/11-implementation-status.md) | Requirement-to-planned-component map; all Not started |
+| [11 – Implementation Status](docs/11-implementation-status.md) | What is done, what is partial, what was and was not verified |
 | [12 – Design System: Lumen](docs/12-design-system-lumen.md) | The UI requirement: Lumen tokens and components |
 
 ## License

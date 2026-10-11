@@ -378,3 +378,26 @@ func TestChangesMadeWhileStoppedAreAudited(t *testing.T) {
 		t.Fatalf("audit = %+v", ev)
 	}
 }
+
+func TestStatusLine(t *testing.T) {
+	cfg := config.Default()
+	if got := statusLine(cfg); !strings.HasPrefix(got, "Not recording: the disclosure") {
+		t.Errorf("unacknowledged: %q", got)
+	}
+	cfg.DisclosureAcknowledged = "2026-10-11T10:00:00Z"
+	if got := statusLine(cfg); !strings.HasPrefix(got, "Not recording: no users") {
+		t.Errorf("no users: %q", got)
+	}
+	cfg.MonitoredUsers = []string{"ben"}
+	if got := statusLine(cfg); got != "Recording 1 monitored user" {
+		t.Errorf("one user: %q", got)
+	}
+	cfg.MonitoredUsers = []string{"ben", "cleo"}
+	if got := statusLine(cfg); got != "Recording 2 monitored users" {
+		t.Errorf("two users: %q", got)
+	}
+	cfg.Collectors.Session = false
+	if got := statusLine(cfg); !strings.Contains(got, "session collector is turned off") {
+		t.Errorf("collector off: %q", got)
+	}
+}

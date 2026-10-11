@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/samiferr/parent_tracker_ubuntu/internal/aggregate"
+	"github.com/samiferr/parent_tracker_ubuntu/internal/config"
 	"github.com/samiferr/parent_tracker_ubuntu/internal/model"
 	"github.com/samiferr/parent_tracker_ubuntu/internal/storage"
 )
@@ -145,6 +146,9 @@ func (a *App) cmdConfig(args []string) int {
 			return a.errorf("%v", err)
 		}
 		a.printf("%s set.\n%s\n", pos[1], reloadHint)
+		if config.IsNotCollected(pos[1]) && pos[2] != "false" {
+			a.println("Note: this release does not collect that yet, so nothing will be recorded for it.")
+		}
 		if pos[1] == "server.listen" {
 			a.println("A new listen address needs a full restart: sudo systemctl restart parent-trackerd")
 		}

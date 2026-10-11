@@ -257,10 +257,8 @@ func (d *doctor) checkSettings(cfg *config.Config) {
 			d.add("ok", "Dashboard", "Listening on "+cfg.Server.Listen+" only, with a password.", "")
 		}
 	}
-	for name, on := range map[string]bool{"collectors.screenshots": cfg.Collectors.Screenshots, "collectors.web": cfg.Collectors.Web} {
-		if on {
-			d.add("info", "Not available", name+" is on, but this release does not collect it.", "")
-		}
+	for _, name := range cfg.NotCollected() {
+		d.add("warn", "Not available", name+" is on, but this release does not collect it, so nothing is recorded for it.", "sudo parent-tracker config set "+name+" false")
 	}
 }
 

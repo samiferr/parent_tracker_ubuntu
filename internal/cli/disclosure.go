@@ -27,6 +27,7 @@ guests or computers you do not control.
 
 // ChildNotice is shown in a monitored user's session (SEC-2).
 const ChildNotice = `Parent Tracker is recording how this computer is used: when you are signed in,
-which application is in front, and for how long. It never records your screen,
-keystrokes or messages. Run "parent-tracker self" to see exactly what is
-recorded about you.`
+which application is in front, and for how long. Your parent can see your
+current state and the app in front, live, and your usage hour by hour. It never
+records your screen, keystrokes or messages. Run "parent-tracker self" to see
+exactly what is recorded about you.`

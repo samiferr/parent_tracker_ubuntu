@@ -97,6 +97,7 @@ upgrading from a release that had no hourly history).
 | uid | INTEGER | |
 | ts | TIMESTAMP | |
 | app_id | TEXT | |
+| app_name | TEXT | display name at the time of the sample, so it survives the desktop entry being removed |
 | window_title | TEXT nullable | optional, can be disabled |
 | pid | INTEGER | |
 | state | TEXT | active/idle/locked |

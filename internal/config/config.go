@@ -392,6 +392,37 @@ func (c *Config) Recording() bool {
 	return c.DisclosureAcknowledged != "" && c.Collectors.Session
 }
 
+// NotCollected lists the collectors that are switched on in c but that this
+// release does not implement: turning them on records nothing. The keys exist so
+// the file format is stable (docs/11).
+func (c *Config) NotCollected() []string {
+	var keys []string
+	for _, k := range []struct {
+		key string
+		on  bool
+	}{
+		{"collectors.web", c.Collectors.Web},
+		{"collectors.web_full_url", c.Collectors.WebFullURL},
+		{"collectors.screenshots", c.Collectors.Screenshots},
+		{"collectors.devices", c.Collectors.Devices},
+	} {
+		if k.on {
+			keys = append(keys, k.key)
+		}
+	}
+	return keys
+}
+
+// IsNotCollected reports whether key names a collector this release does not
+// implement.
+func IsNotCollected(key string) bool {
+	switch key {
+	case "collectors.web", "collectors.web_full_url", "collectors.screenshots", "collectors.devices":
+		return true
+	}
+	return false
+}
+
 // Marshal renders the config as TOML.
 func (c *Config) Marshal() ([]byte, error) {
 	b, err := toml.Marshal(c)

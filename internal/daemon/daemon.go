@@ -243,7 +243,10 @@ func (d *Daemon) Run(ctx context.Context) error {
 		go func() { defer wg.Done(); d.alerts.Run(runCtx) }()
 	}
 
-	sdNotify("READY=1")
+	for _, k := range cfg.NotCollected() {
+		d.log.Warn("this collector is switched on but not implemented in this release; nothing is recorded for it", "key", k)
+	}
+	sdNotify("READY=1\nSTATUS=" + statusLine(cfg))
 	d.log.Info("parent-trackerd running", "version", d.o.Version, "monitored_users", len(cfg.MonitoredUsers), "recording", cfg.Recording())
 	<-ctx.Done()
 
@@ -362,8 +365,25 @@ func (d *Daemon) reload(origin string) error {
 		d.agents.Reconfigure(context.Background())
 	}
 	d.auditChanges(next, origin != "dashboard") // the dashboard audits its own changes
+	sdNotify("STATUS=" + statusLine(next))
 	d.log.Info("configuration reloaded")
 	return nil
+}
+
+// statusLine is what `systemctl status parent-trackerd` shows (FR-1.7).
+func statusLine(cfg *config.Config) string {
+	n := len(cfg.MonitoredUsers)
+	switch {
+	case cfg.DisclosureAcknowledged == "":
+		return "Not recording: the disclosure notice has not been acknowledged (run parent-tracker setup)"
+	case n == 0:
+		return "Not recording: no users are monitored (run parent-tracker users add)"
+	case !cfg.Collectors.Session:
+		return "Not recording: the session collector is turned off"
+	case n == 1:
+		return "Recording 1 monitored user"
+	}
+	return fmt.Sprintf("Recording %d monitored users", n)
 }
 
 // Change is one audited configuration change.
