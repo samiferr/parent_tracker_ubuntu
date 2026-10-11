@@ -1,0 +1,89 @@
+# Parent Tracker configuration. Copy to /etc/parent-tracker/config.toml (the
+# package does this on first install). Mode 0640. Unknown keys are rejected.
+#
+# After editing: sudo systemctl reload parent-trackerd
+# Or use: sudo parent-tracker config set <key> <value>
+
+# Where the database lives, and its file name.
+data_dir = "/var/lib/parent-tracker"
+db_name = "tracker.db"
+
+# debug, info, warn or error.
+log_level = "info"
+
+# How often the machine is sampled (1s to 1m).
+sample_interval = "5s"
+
+# Browser history import (reserved for a later phase; no effect yet).
+web_import_interval = "15m"
+
+# Unix sockets: the child's self-view, and the per-session agent.
+control_socket = "/run/parent-tracker/control.sock"
+agent_socket = "/run/parent-tracker/agent.sock"
+
+# The allowlist. Only these accounts are ever recorded. Use:
+#   sudo parent-tracker users add <name>
+monitored_users = []
+
+# Set by `parent-tracker setup` when you acknowledge the disclosure notice.
+# Nothing is recorded until it is set.
+disclosure_acknowledged = ""
+
+[collectors]
+session = true        # sign-in, active, idle and locked time
+app = true            # which application is in front
+window_title = false  # privacy-sensitive: titles can contain private text
+web = false           # reserved for a later phase; no effect yet
+web_full_url = false  # reserved for a later phase; requires web
+screenshots = false   # not implemented; never captured
+devices = false       # reserved for a later phase; no effect yet
+
+[retention]
+window_samples = "720h"    # raw application samples (30 days)
+intervals = "4320h"        # activity intervals (180 days)
+app_usage = "17520h"       # per-app daily totals (730 days)
+hourly_usage = "8760h"     # hour-by-hour history (365 days)
+web_visits = "2160h"       # reserved for a later phase
+alerts = "8760h"
+sessions = "8760h"
+prune_interval = "6h"
+
+[server]
+enabled = true
+listen = "127.0.0.1:8787"   # loopback only unless allow_lan is true
+username = "parent"
+password_hash = ""          # a bcrypt hash; set by `parent-tracker setup`
+allow_lan = false
+live = true                 # real-time dashboard updates
+live_max_clients = 10       # extra viewers fall back to polling
+
+[alerts]
+enabled = false
+channel = "none"            # none, desktop, ntfy or webhook
+ntfy_url = ""
+webhook_url = ""
+daily_active_limit = "0s"   # for example "3h"; 0s means no limit
+bedtime = ""                # local HH:MM, for example "21:00"; empty means none
+notify_on_service_stop = true
+
+# Application categories. Patterns are globs matched against the application
+# id. Replace or extend these; the first matching category wins.
+[[categories]]
+name = "games"
+patterns = ["steam", "*game*", "minecraft", "lutris", "heroic", "roblox*", "org.prismlauncher*"]
+
+[[categories]]
+name = "school"
+patterns = ["libreoffice*", "code", "zotero", "anki", "org.gnome.evince", "org.kde.okular", "geogebra*"]
+
+[[categories]]
+name = "social"
+patterns = ["discord", "telegram*", "org.telegram*", "signal*", "whatsapp*", "slack", "element*"]
+
+[[categories]]
+name = "video"
+patterns = ["vlc", "mpv", "org.gnome.totem", "totem", "celluloid", "io.github.celluloid_player*", "*youtube*", "*netflix*"]
+
+[[categories]]
+name = "browser"
+patterns = ["firefox*", "chromium*", "google-chrome*", "brave*", "microsoft-edge*", "org.mozilla.firefox", "epiphany", "org.gnome.epiphany"]

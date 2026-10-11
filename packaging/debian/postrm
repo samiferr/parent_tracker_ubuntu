@@ -1,0 +1,25 @@
+#!/bin/sh
+set -e
+ROOT=${DPKG_ROOT:-}
+
+case "$1" in
+remove|purge)
+  if [ -z "$ROOT" ] && [ -d /run/systemd/system ] && command -v systemctl >/dev/null 2>&1; then
+    systemctl daemon-reload || true
+  fi
+  ;;
+esac
+
+case "$1" in
+purge)
+  # The recorded data and the configuration go with a purge; `parent-tracker
+  # export` first if you want to keep them.
+  rm -f "$ROOT/etc/dconf/db/local.d/90-parent-tracker" "$ROOT/etc/dconf/db/local.d/locks/90-parent-tracker"
+  if [ -z "$ROOT" ] && command -v dconf >/dev/null 2>&1; then
+    dconf update || true
+  fi
+  rm -rf "$ROOT/etc/parent-tracker" "$ROOT/var/lib/parent-tracker" "$ROOT/run/parent-tracker"
+  ;;
+esac
+
+exit 0

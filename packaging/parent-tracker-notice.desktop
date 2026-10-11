@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Parent Tracker notice
+Comment=Tells you at login that activity on this account is recorded
+Exec=/usr/bin/parent-tracker notice --notify
+Terminal=false
+NoDisplay=true
+X-GNOME-Autostart-enabled=true
+X-GNOME-Autostart-Phase=Applications
+OnlyShowIn=GNOME;Unity;X-Cinnamon;MATE;XFCE;LXQt;KDE;Budgie;
