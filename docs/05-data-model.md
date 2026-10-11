@@ -51,6 +51,41 @@ screen time). Reduces raw sample volume.
 | session_count | INTEGER | |
 | PK | (uid, day, app_id) | |
 
+### `hourly_usage` (aggregate, per local hour)
+One row per user per completed local hour. Source of truth for the per-hour
+history; written by the rollup (see [04 – Architecture](04-architecture.md#412-hourly-rollup)).
+| Column | Type | Notes |
+| --- | --- | --- |
+| uid | INTEGER | |
+| hour_start | TIMESTAMP | UTC instant at which the local hour begins (so DST "fall back" yields two distinct rows) |
+| day | DATE | local day the hour belongs to |
+| hour | INTEGER | local hour of day, 0–23 (label only; not unique on a DST fall-back day) |
+| hour_len_ms | INTEGER | normally 3 600 000; shorter/longer only for unusual DST shifts |
+| active_ms | INTEGER | time in `active` clipped to this hour |
+| idle_ms | INTEGER | time in `idle` clipped to this hour |
+| locked_ms | INTEGER | `locked` + `screen_off` clipped to this hour |
+| gap_ms | INTEGER | overlap with recorded tracking gaps (service stopped/crashed, unclean session end) |
+| PK | (uid, hour_start) | Index `(uid, day)` |
+
+`hour_len_ms − active_ms − idle_ms − locked_ms − gap_ms` is the time the user
+was **not in a session / PC off**; it is derived at read time and not stored.
+The hour currently in progress is not stored; it is computed on demand.
+
+### `hourly_app_usage` (aggregate, per local hour per app)
+| Column | Type | Notes |
+| --- | --- | --- |
+| uid | INTEGER | |
+| hour_start | TIMESTAMP | same meaning as in `hourly_usage` |
+| app_id | TEXT | desktop id / exe basename |
+| app_name | TEXT | human readable |
+| category | TEXT | rules-derived |
+| foreground_ms | INTEGER | time in foreground & active within this hour |
+| PK | (uid, hour_start, app_id) | Index `(uid, hour_start)` |
+
+Empty (no rows) for hours where app tracking was unavailable, e.g. Wayland
+without the GNOME helper, or hours older than `window_samples` retention at the
+time the table was first backfilled.
+
 ### `window_samples` (raw, retention-limited)
 | Column | Type | Notes |
 | --- | --- | --- |
@@ -119,6 +154,7 @@ Tamper-evidence and admin actions.
 | Raw `window_samples` | 30 days | deleted (aggregates kept) |
 | `activity_intervals` | 180 days | deleted |
 | `app_usage` aggregates | 2 years | deleted |
+| `hourly_usage` / `hourly_app_usage` | 1 year (`retention.hourly_usage`) | deleted |
 | `web_visits` | 90 days | deleted |
 | Screenshots (phase 3) | 7 days | deleted |
 | `alerts` / `audit_log` | 1 year | deleted |
@@ -135,6 +171,19 @@ Retention is configurable per category. Deletion is a real `DELETE` + `VACUUM`
   state = `active`; sample interval capped so a stale sample doesn't over-count.
 - **Idle ≠ usage**: any interval in `idle`/`locked`/`screen_off` is excluded.
 - Time overlapping a clock change is clamped (no negative, no double count).
+- **Hourly state time** = for each `activity_intervals` row, the overlap with
+  each local-hour bucket it touches (`min(end, bucket_end) − max(start,
+  bucket_start)`), summed per state. An interval is split exactly at hour
+  boundaries; the pieces add back up to the original duration.
+- **Daily ≡ hourly.** For any local day, `SUM(hourly_usage.active_ms)` equals the
+  day's active time from `activity_intervals` (FR-6.22). Both are derived from
+  the same intervals, so a mismatch is a bug.
+- **Hourly app time** uses the same sample-delta attribution and cap as the
+  daily `app_usage` figure, bucketed by the sample's local hour; a sample delta
+  that straddles an hour boundary is split at the boundary.
+- **Live totals** = stored totals for closed intervals + the open interval up to
+  the last good sample (not up to "now"), so a stalled collector cannot inflate
+  usage.
 
 ## 5.4 Data volume estimate
 
@@ -142,7 +191,13 @@ At 5 s sampling, ~17,280 samples/day/user ≈ ~2–4 MB/day raw depending on tit
 storage. With 90-day raw retention, < ~400 MB per user is expected — acceptable
 for local disk; aggregator keeps this bounded.
 
+Hourly history is small: at most 24 `hourly_usage` rows per user per day
+(≈ 9 k rows/year) and a few `hourly_app_usage` rows per active hour, together
+well under ~5 MB per user per year at the default 1-year retention.
+
 ## 5.5 Export format
 
 JSONL for events, CSV for aggregates. Export bundle includes a manifest with
-schema version, date range, and users, plus a checksum.
+schema version, date range, and users, plus a checksum. The bundle includes
+`hourly_usage` and `hourly_app_usage` (FR-10.5); hourly CSV has one row per
+user-hour with the columns above.

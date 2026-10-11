@@ -7,7 +7,7 @@ Phased delivery. Each phase is independently useful and shippable.
 - systemd service skeleton that starts at boot and logs.
 - Config file + CLI skeleton (`status`, `doctor` stub).
 - SQLite schema + migrations.
-- **Exit:** service installs on 22.04/24.04 and reports "alive".
+- **Exit:** service installs on Ubuntu 24.04 (the minimum supported release) and reports "alive".
 
 ## Phase 1 — MVP: session & screen time (2–3 weeks)
 - logind/D-Bus session + lock/idle collection.
@@ -51,8 +51,32 @@ Phased delivery. Each phase is independently useful and shippable.
 - Search-term capture (opt-in, high sensitivity).
 - Localisation.
 
+## Phase 8 — Platform baseline, hourly history & live dashboard (next)
+Phase numbers are stable IDs used elsewhere in these docs; Phase 8 is scheduled
+**ahead of Phases 6 and 7**. Suggested order inside the phase:
+
+1. **Platform baseline: Ubuntu 24.04+ only** (NFR-3.1, 3.7, 3.8, 6.8).
+   - `.deb` `Depends: systemd (>= 255)` (and `libc6 (>= 2.39)` if dynamic).
+   - `doctor` OS-support check.
+   - Drop 22.04 from CI and the manual matrix; add the negative install test.
+2. **Per-hour history** (FR-6.20…6.29, FR-10.5).
+   - `hourly_usage` / `hourly_app_usage`, migration + background backfill.
+   - Hourly rollup with 48 h idempotent recompute.
+   - `/api/hourly`, Hourly history screen, `report --by hour`, export / delete /
+     self-view coverage, `retention.hourly_usage`.
+3. **Real-time dashboard** (FR-6.8…6.16).
+   - In-memory live hub, `/api/live` + `/api/live/stream` (SSE), polling
+     fallback, freshness indicator, Live "Now" card, live timeline edge.
+   - `server.live`, `server.live_max_clients`; disclosure/self-view wording
+     (SEC-6).
+   - Hourly goes first because the Live card's "current hour" reuses it.
+- **Exit:** AC-60…AC-64, AC-80…AC-88, AC-90…AC-98 pass.
+
 ## Prioritisation rationale
 
 Value order: **screen time → which apps → reports/alerts → web → enforcement**.
 Each phase answers a real parent question. Wayland app tracking is the biggest
 technical risk and is isolated to Phase 2 so earlier value isn't blocked by it.
+Dropping 22.04 makes that risk the *main* path rather than an edge: newer Ubuntu
+releases are Wayland-only on GNOME, so Phase 8's live and hourly views must
+degrade cleanly where per-app data is unavailable.

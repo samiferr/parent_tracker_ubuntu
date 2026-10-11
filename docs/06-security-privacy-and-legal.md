@@ -28,6 +28,7 @@
 | SEC-3 | The child can open a **read-only self-view** of their recorded data. |
 | SEC-4 | Documentation states clearly what is and is not collected. |
 | SEC-5 | Age-appropriate explainer text is included. |
+| SEC-6 | The disclosure notice and the child's self-view state plainly that the parent can see the **current state and foreground app live**, and can see usage **by hour of the day**. Live and hourly views show nothing that is not also in the self-view. |
 
 ## 6.3 Access & authentication
 
@@ -38,6 +39,8 @@
 | SEC-12 | CLI admin commands require root/sudo or membership in an admin group. |
 | SEC-13 | Agent↔daemon socket authenticated by peer credentials (SO_PEERCRED) and restricted to monitored UIDs. |
 | SEC-14 | Any change to monitored-user list or collector enablement is written to `audit_log`. |
+| SEC-15 | Live endpoints (`/api/live`, `/api/live/stream`) and hourly endpoints (`/api/hourly`) require the same authentication as every other `/api/*` route, are same-origin only (no CORS), honour `allow_lan`, and cap concurrent live connections. |
+| SEC-16 | Live payloads obey the same collector switches as stored data: no window title unless `collectors.window_title` is on; no screen content, keystrokes or message content in any form. |
 
 ## 6.4 Data protection
 
@@ -69,6 +72,7 @@ Scope note: a user with root can ultimately disable anything; we aim for
 | SEC-40 | The child can view exactly what is stored about them. |
 | SEC-41 | The child can request deletion; the admin performs it (documented flow). |
 | SEC-42 | Sensitive collectors (screenshots, full URLs, search terms) require explicit admin opt-in and are visibly indicated. |
+| SEC-43 | The child's self-view includes the same hour-by-hour history the parent sees for that account; hourly data is covered by export and deletion (FR-10.5). |
 
 ## 6.7 Threat model (lightweight)
 
@@ -80,6 +84,8 @@ Scope note: a user with root can ultimately disable anything; we aim for
 | Data exfiltration via export | Restrictive file perms; warning. |
 | Malicious local user spoofs agent | SO_PEERCRED check; socket root-owned. |
 | Physical access / disk theft | Optional encryption at rest. |
+| Many/stuck live connections exhaust the daemon | Connection cap, bounded per-client buffer, slow clients dropped, auth required before the stream opens (SEC-15). |
+| Live stream leaks more than stored data (e.g. titles) | Payload built from the same redaction rules as storage (SEC-16); tested (AC-86). |
 
 ## 6.8 Legal considerations (informational, not legal advice)
 
