@@ -10,15 +10,17 @@ the child can be shown exactly what is recorded.
 > monitor adults or devices you do not control. See
 > [docs/06-security-privacy-and-legal.md](docs/06-security-privacy-and-legal.md).
 
-## Status: first release implemented, not yet run on a real desktop
+## Status: first release implemented, only just started on a real desktop
 
 The service, the agent, the CLI, the dashboard (React 18 and the **Lumen**
 design system) and the `.deb` packaging are written in Go and pass `make check`
-(about 175 test functions, with the race detector). **It has not yet been
-installed on a real Ubuntu desktop.** In particular the GNOME Shell extension
-(Wayland foreground app), the systemd units and the dconf enablement have only
-been tested against fakes and mocks, because no GNOME Shell or full systemd runs
-in the development environment.
+(about 175 test functions, with the race detector). **It has so far been
+installed once on a real Ubuntu 24.04 desktop** (the package installs; the first
+run showed problems that are fixed in the code, see
+[docs/11](docs/11-implementation-status.md)). The GNOME Shell extension (Wayland
+foreground app), the systemd units and the dconf enablement are not yet
+confirmed working there: they were tested against fakes and mocks, because no
+GNOME Shell or full systemd runs in the development environment.
 
 Not built yet: browser-history import, screenshots, device events, a daily
 digest, e-mail alerts, PDF export, time-limit enforcement, encryption at rest.
@@ -96,7 +98,9 @@ See [docs/04-architecture.md](docs/04-architecture.md).
 
 ## Build
 
-Go 1.24 or newer, nothing else: the dashboard has no build step (React 18, Lumen
+Go 1.24 or newer on your `PATH`, nothing else. (Ubuntu 24.04's `golang-go`
+package is 1.22, which is too old: install Go from <https://go.dev/dl/> or with
+`sudo snap install go --classic`.) The dashboard has no build step (React 18, Lumen
 and the fonts are vendored, unmodified, and embedded in the daemon). Binaries
 are static (`CGO_ENABLED=0`).
 

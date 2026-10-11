@@ -195,18 +195,23 @@ func TestDaemonEndToEnd(t *testing.T) {
 		}
 	}
 
-	// the child's self-view over the control socket (root asks for ilyes)
-	c := &http.Client{Transport: &http.Transport{DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
-		return (&net.Dialer{}).DialContext(ctx, "unix", e.d.Config().ControlSocket)
-	}}}
-	r, err := c.Get("http://control/self?user=ilyes")
-	if err != nil {
-		t.Fatal(err)
-	}
-	body, _ := io.ReadAll(r.Body)
-	r.Body.Close()
-	if r.StatusCode != 200 || !strings.Contains(string(body), `"parent_sees_live":true`) {
-		t.Fatalf("self-view: %d %s", r.StatusCode, body)
+	// the child's self-view over the control socket (root asks for ilyes). The
+	// control server resolves callers through /etc/passwd, and "ilyes" is not a
+	// real account, so only root may ask on behalf of another user. The rule that
+	// a normal user sees only their own data is tested in internal/control.
+	if os.Getuid() == 0 {
+		c := &http.Client{Transport: &http.Transport{DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+			return (&net.Dialer{}).DialContext(ctx, "unix", e.d.Config().ControlSocket)
+		}}}
+		r, err := c.Get("http://control/self?user=ilyes")
+		if err != nil {
+			t.Fatal(err)
+		}
+		body, _ := io.ReadAll(r.Body)
+		r.Body.Close()
+		if r.StatusCode != 200 || !strings.Contains(string(body), `"parent_sees_live":true`) {
+			t.Fatalf("self-view: %d %s", r.StatusCode, body)
+		}
 	}
 
 	// SIGHUP-style reload: turning the live view off closes the stream (AC-87)

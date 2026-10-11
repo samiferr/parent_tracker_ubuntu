@@ -1,9 +1,9 @@
 # 11 – Implementation Status
 
 > **As of 2026-10-11 the first release is implemented in Go** and builds,
-> tests and packages (`make check`, `make deb-all`). It has **not** yet been
-> run on a real Ubuntu desktop: everything below that depends on a live GNOME
-> Shell, a real systemd service or a real `apt install` is marked as such. A row
+> tests and packages (`make check`, `make deb-all`). It has only just been
+> installed on a real Ubuntu desktop (see "First run" below): everything that
+> depends on a live GNOME Shell or a running service is marked as unverified. A row
 > says **Done** only when its code and tests are committed here.
 
 Legend: **Done** (code and automated tests committed), **Partial** (some of the
@@ -49,7 +49,20 @@ horizontal overflow, every control labelled, focus rings visible, the
 "Reconnecting" state when the server goes away). `tools/ui-check/` repeats
 those checks.
 
-**Never run in this environment, so unverified:**
+**First run on a real machine (the owner, Ubuntu 24.04.5, `apt install` of a
+locally built package).** The package installed and `doctor` ran. Three things
+failed and are fixed here: `make check` failed on a normal (non-root) account
+because three tests only passed as root or on a machine without GNOME; the
+installed `/etc/parent-tracker/config.toml` was rejected by the strict parser
+without saying which setting was wrong (the error now names every unknown
+setting and line, `setup --reset-config` keeps the old file as a backup and
+starts again, and the package warns at install time); and an untagged build got
+the bare commit hash as its package version (now `0.0.0~git<count>.<hash>`).
+The cause of the rejected file on that machine is not yet known. Nothing else
+from that run has been reported yet: the service, the dashboard, the extension
+and the login notice are still untried on real hardware.
+
+**Not run anywhere yet, so unverified:**
 
 - the **GNOME Shell extension** inside a real GNOME Shell (there is none here).
   The agent's side is tested against a mock of its D-Bus interface; the

@@ -26,6 +26,7 @@ func (a *App) cmdSetup(args []string) int {
 	ntfy := fs.String("ntfy-url", "", "ntfy topic URL (with --alert-channel ntfy)")
 	ack := fs.Bool("acknowledge-disclosure", false, "acknowledge the disclosure notice (required with --non-interactive the first time)")
 	nonInteractive := fs.Bool("non-interactive", false, "take everything from flags and ask nothing")
+	reset := fs.Bool("reset-config", false, "if the existing configuration cannot be read, keep it as a backup and start from the defaults")
 	if _, err := parse(fs, args); err != nil {
 		return 2
 	}
@@ -33,6 +34,15 @@ func (a *App) cmdSetup(args []string) int {
 		return a.errorf("setup writes the configuration and must run as root: use `sudo parent-tracker setup`")
 	}
 	cfg, err := a.loadOrDefault(*cfgPath)
+	if err != nil && *reset && !isPermissionOrUsage(err) {
+		bak := fmt.Sprintf("%s.bak-%s", *cfgPath, a.Now().UTC().Format("20060102-150405"))
+		if rerr := os.Rename(*cfgPath, bak); rerr != nil {
+			return a.errorf("cannot move %s aside: %v", *cfgPath, rerr)
+		}
+		a.printf("The existing configuration could not be used (%s).\nIt was moved to %s and setup starts from the defaults.\n\n",
+			firstLine(err.Error()), bak)
+		cfg, err = a.newConfig(), nil
+	}
 	if err != nil {
 		return a.errorf("%v", err)
 	}
@@ -244,4 +254,17 @@ func (a *App) notifyChild(name string) {
 	defer cancel()
 	_, _ = a.Exec(ctx, "runuser", "-u", name, "--", "env", "DBUS_SESSION_BUS_ADDRESS=unix:path="+bus,
 		"notify-send", "--app-name=Parent Tracker", "Parent Tracker is recording", ChildNotice)
+}
+
+func firstLine(s string) string {
+	if i := strings.IndexByte(s, '\n'); i >= 0 {
+		return s[:i]
+	}
+	return s
+}
+
+// isPermissionOrUsage reports errors that --reset-config must not paper over:
+// a file that exists but cannot be read by this user is not a broken file.
+func isPermissionOrUsage(err error) bool {
+	return strings.Contains(err.Error(), "run this command with sudo")
 }

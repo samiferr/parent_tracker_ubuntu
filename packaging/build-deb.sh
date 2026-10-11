@@ -9,6 +9,7 @@
 #             (default: bin)
 #
 # Needs only dpkg-deb. Run from anywhere; `make deb` builds the binaries first.
+# DIST names the output directory (default: dist).
 set -eu
 cd "$(dirname "$0")/.."
 
@@ -28,6 +29,18 @@ version=$(printf '%s' "$raw" | sed -E \
   -e 's/-([0-9]+)-g([0-9a-f]+)/+\1.g\2/' \
   -e 's/-dirty$/+dirty/' \
   -e 's/-dev$/~dev/')
+# No tag: `git describe --always` prints a bare commit hash (optionally +dirty),
+# which would sort unpredictably against real versions. Use 0.0.0~git<count>.<hash>
+# so builds still sort by age and any tagged release is newer.
+case "$version" in
+  *[!0-9a-f+dirty]*) hash= ;;
+  *) hash=$(printf '%s' "$version" | sed -E 's/\+dirty$//') ;;
+esac
+if printf '%s' "$hash" | grep -qE '^[0-9a-f]{7,40}$'; then
+  count=$(git rev-list --count HEAD 2>/dev/null || echo 0)
+  suffix=$(printf '%s' "$version" | sed -n 's/^[0-9a-f]*\(+dirty\)$/\1/p')
+  version="0.0.0~git$count.$hash$suffix"
+fi
 case "$version" in
   [0-9]*) ;;
   *) version="0.0.0~git.$version" ;;
@@ -35,7 +48,7 @@ esac
 case "$version" in *-*) echo "version $version still has a hyphen" >&2; exit 1 ;; esac
 
 maintainer=${MAINTAINER:-"samiferr <samiferr@users.noreply.github.com>"}
-out=dist
+out=${DIST:-dist}
 pkg=parent-tracker
 root=$(mktemp -d)
 chmod 0755 "$root"

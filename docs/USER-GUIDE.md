@@ -202,8 +202,9 @@ collect anything until you choose which users to monitor.
 
 ### 3.2 From source
 
-The build needs Go 1.24 or newer and nothing else (the dashboard has no build
-step):
+The build needs Go 1.24 or newer on your `PATH` and nothing else (the dashboard
+has no build step). Ubuntu 24.04's `golang-go` package is 1.22, which is too old;
+install Go from <https://go.dev/dl/> or with `sudo snap install go --classic`:
 
 ```bash
 git clone https://github.com/samiferr/parent_tracker_ubuntu
@@ -473,7 +474,14 @@ Print the version.
 Initial configuration. Flags: `--user` (repeatable), `--dashboard-user`,
 `--dashboard-password`, `--alert-channel`, `--ntfy-url`,
 `--acknowledge-disclosure` (required with `--non-interactive`),
-`--non-interactive`.
+`--non-interactive`, `--reset-config`.
+
+If `/etc/parent-tracker/config.toml` exists but this version cannot read it (for
+example a file left by another version, with settings this one does not know),
+setup stops and names the settings. `--reset-config` keeps the old file as
+`config.toml.bak-<time>` and starts again from the defaults. The package never
+replaces an existing configuration, and warns at install time if it cannot be
+read.
 
 ### `parent-tracker status`
 Show config path, data dir, database path, sample interval, monitored users,

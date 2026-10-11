@@ -12,6 +12,20 @@ configure)
     install -d -m 0755 "$ROOT/etc/parent-tracker"
     install -m 0640 "$ROOT/usr/share/doc/parent-tracker/config.toml.example" "$ROOT/etc/parent-tracker/config.toml"
   fi
+  # An existing configuration (from another version, say) is never replaced, but
+  # say so now if this version cannot read it.
+  if [ -x "$ROOT/usr/bin/parent-tracker" ]; then
+    if ! err=$("$ROOT/usr/bin/parent-tracker" config list -c "$ROOT/etc/parent-tracker/config.toml" 2>&1 >/dev/null); then
+      cat <<MSG
+
+WARNING: /etc/parent-tracker/config.toml cannot be read by this version:
+  $err
+The service will not start with it. To start again from the defaults (the old
+file is kept as a backup):  sudo parent-tracker setup --reset-config
+
+MSG
+    fi
+  fi
   if [ -z "$ROOT" ] && command -v systemd-tmpfiles >/dev/null 2>&1; then
     systemd-tmpfiles --create /usr/lib/tmpfiles.d/parent-tracker.conf || true
   fi

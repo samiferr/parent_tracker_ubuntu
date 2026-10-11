@@ -57,7 +57,7 @@ func newRig(t *testing.T) *rig {
 	os.WriteFile(r.osrel, []byte("ID=ubuntu\nVERSION_ID=\"24.04\"\nPRETTY_NAME=\"Ubuntu 24.04.5 LTS\"\n"), 0o644)
 	r.app = &App{Stdin: r.stdin, Stdout: r.out, Stderr: r.errb, Version: "test", Now: func() time.Time { return r.now }, Loc: time.UTC,
 		IsRoot: r.root.Load, IsTerminal: func() bool { return false }, OSRelease: r.osrel, ConfigPath: r.cfg,
-		Socket: filepath.Join(r.dir, "none.sock"), Root: r.dir,
+		Socket: filepath.Join(r.dir, "none.sock"), Root: r.dir, DataDir: filepath.Join(r.dir, "data"),
 		ListAccounts: func() ([]Account, error) { return accounts, nil },
 		LookupUser: func(n string) (Account, bool) {
 			for _, a := range accounts {
@@ -775,5 +775,48 @@ func TestUnimplementedCollectorsAreSaidSo(t *testing.T) {
 	r.run("doctor")
 	if got := r.out.String(); !strings.Contains(got, "collectors.screenshots is on, but this release does not collect it") {
 		t.Fatalf("doctor should flag it:\n%s", got)
+	}
+}
+
+func TestSetupWithAnUnreadableConfig(t *testing.T) {
+	r := newRig(t)
+	if err := os.MkdirAll(filepath.Dir(r.cfg), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	old := "monitored_users = []\n[web]\nenabled = true\n" // written by another version
+	if err := os.WriteFile(r.cfg, []byte(old), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	args := []string{"setup", "--non-interactive", "--user", "ilyes", "--dashboard-password", "a-strong-password", "--acknowledge-disclosure"}
+
+	// Without the flag nothing is touched and the message says what to do.
+	if rc := r.run(args...); rc == 0 {
+		t.Fatal("setup must not overwrite a configuration it cannot read")
+	}
+	msg := r.errb.String()
+	for _, want := range []string{`"web" is not a setting this version knows`, "setup --reset-config"} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("error lacks %q:\n%s", want, msg)
+		}
+	}
+	if b, _ := os.ReadFile(r.cfg); string(b) != old {
+		t.Fatal("the file was changed without --reset-config")
+	}
+
+	// With it the old file is kept as a backup and setup starts again.
+	r.errb.Reset()
+	r.mustRun(append(args, "--reset-config")...)
+	if !strings.Contains(r.out.String(), "was moved to") {
+		t.Errorf("output should say where the old file went:\n%s", r.out)
+	}
+	baks, _ := filepath.Glob(r.cfg + ".bak-*")
+	if len(baks) != 1 {
+		t.Fatalf("expected one backup, got %v", baks)
+	}
+	if b, _ := os.ReadFile(baks[0]); string(b) != old {
+		t.Error("the backup is not the old file")
+	}
+	if c, err := config.Load(r.cfg); err != nil || len(c.MonitoredUsers) != 1 {
+		t.Fatalf("the new configuration should load: %v %+v", err, c)
 	}
 }
