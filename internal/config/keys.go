@@ -5,7 +5,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"time"
 )
 
 type keySpec struct {
@@ -29,7 +28,7 @@ func boolKey(get func(*Config) *bool) keySpec {
 
 func durKey(get func(*Config) *Duration) keySpec {
 	return keySpec{
-		get: func(c *Config) string { return time.Duration(*get(c)).String() },
+		get: func(c *Config) string { return get(c).String() },
 		set: func(c *Config, v string) error {
 			var d Duration
 			if err := d.UnmarshalText([]byte(v)); err != nil {
@@ -72,9 +71,9 @@ var keyTable = map[string]keySpec{
 	"retention.intervals":      durKey(func(c *Config) *Duration { return &c.Retention.Intervals }),
 	"retention.app_usage":      durKey(func(c *Config) *Duration { return &c.Retention.AppUsage }),
 	"retention.hourly_usage":   durKey(func(c *Config) *Duration { return &c.Retention.HourlyUsage }),
-	"retention.web_visits":     {get: func(c *Config) string { return c.Retention.WebVisits.D().String() }},
-	"retention.alerts":         {get: func(c *Config) string { return c.Retention.Alerts.D().String() }},
-	"retention.sessions":       {get: func(c *Config) string { return c.Retention.Sessions.D().String() }},
+	"retention.web_visits":     {get: func(c *Config) string { return c.Retention.WebVisits.String() }},
+	"retention.alerts":         {get: func(c *Config) string { return c.Retention.Alerts.String() }},
+	"retention.sessions":       {get: func(c *Config) string { return c.Retention.Sessions.String() }},
 	"retention.prune_interval": durKey(func(c *Config) *Duration { return &c.Retention.PruneInterval }),
 
 	"server.enabled":   boolKey(func(c *Config) *bool { return &c.Server.Enabled }),

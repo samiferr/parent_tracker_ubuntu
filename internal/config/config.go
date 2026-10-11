@@ -31,7 +31,24 @@ func (d Duration) D() time.Duration { return time.Duration(d) }
 func (d Duration) Milliseconds() int64 { return time.Duration(d).Milliseconds() }
 
 // MarshalText implements encoding.TextMarshaler.
-func (d Duration) MarshalText() ([]byte, error) { return []byte(time.Duration(d).String()), nil }
+func (d Duration) MarshalText() ([]byte, error) { return []byte(d.String()), nil }
+
+// String formats the duration compactly: "5s", "15m", "720h" (the form the
+// documentation and `config get` use), falling back to Go's form otherwise.
+func (d Duration) String() string {
+	v := time.Duration(d)
+	switch {
+	case v == 0:
+		return "0s"
+	case v%time.Hour == 0:
+		return fmt.Sprintf("%dh", v/time.Hour)
+	case v%time.Minute == 0:
+		return fmt.Sprintf("%dm", v/time.Minute)
+	case v%time.Second == 0:
+		return fmt.Sprintf("%ds", v/time.Second)
+	}
+	return v.String()
+}
 
 // UnmarshalText implements encoding.TextUnmarshaler.
 func (d *Duration) UnmarshalText(b []byte) error {

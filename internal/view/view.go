@@ -701,8 +701,10 @@ func (v *Viewer) Trend(uid int, fromDay, toDay string) ([]DayPoint, error) {
 			}
 		}
 		if first != 0 {
+			// the last activity is when the last active interval ended, as on the Today
+			// screen, so every view shows the same time (AC-97)
 			p.FirstMin = localMinutes(v.Loc, first)
-			p.LastMin = localMinutes(v.Loc, last-1)
+			p.LastMin = localMinutes(v.Loc, last)
 			if last >= de { // reaches midnight
 				p.LastMin = 24*60 - 1
 			}
@@ -851,4 +853,49 @@ func minI(a, b int64) int64 {
 		return a
 	}
 	return b
+}
+
+// ReportDay is one row of `parent-tracker report`.
+type ReportDay struct {
+	Date     string `json:"date"`
+	ActiveMs int64  `json:"active_ms"`
+	IdleMs   int64  `json:"idle_ms"`
+	LockedMs int64  `json:"locked_ms"`
+	FirstMin int    `json:"first_min"`
+	LastMin  int    `json:"last_min"`
+	HasData  bool   `json:"has_data"`
+	TopApp   string `json:"top_app"`
+	TopAppMs int64  `json:"top_app_ms"`
+}
+
+// DailyReport returns one row per local day in fromDay..toDay inclusive, with
+// each day's most-used application. It uses the same sources as the dashboard.
+func (v *Viewer) DailyReport(uid int, fromDay, toDay string) ([]ReportDay, error) {
+	pts, err := v.Trend(uid, fromDay, toDay)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := v.appRows(uid, fromDay, toDay)
+	if err != nil {
+		return nil, err
+	}
+	best := map[string]model.AppDay{}
+	for _, r := range rows {
+		if r.ForegroundMs > best[r.Day].ForegroundMs {
+			best[r.Day] = r
+		}
+	}
+	out := make([]ReportDay, 0, len(pts))
+	for _, p := range pts {
+		rd := ReportDay{Date: p.Date, ActiveMs: p.ActiveMs, IdleMs: p.IdleMs, LockedMs: p.LockedMs,
+			FirstMin: p.FirstMin, LastMin: p.LastMin, HasData: p.HasData}
+		if b, ok := best[p.Date]; ok {
+			rd.TopApp, rd.TopAppMs = b.AppName, b.ForegroundMs
+			if rd.TopApp == "" {
+				rd.TopApp = b.AppID
+			}
+		}
+		out = append(out, rd)
+	}
+	return out, nil
 }

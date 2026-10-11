@@ -224,7 +224,7 @@ func TestTrendAndAverages(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(tr) != 4 || tr[0].HasData || tr[1].ActiveMs != 60*min || tr[3].FirstMin != 8*60+30 || tr[3].LastMin != 11*60+29 {
+	if len(tr) != 4 || tr[0].HasData || tr[1].ActiveMs != 60*min || tr[3].FirstMin != 8*60+30 || tr[3].LastMin != 11*60+30 {
 		t.Fatalf("trend = %+v", tr)
 	}
 	day, _ := f.v.Day(1000, "2026-10-10")

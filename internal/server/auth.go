@@ -7,7 +7,9 @@ import (
 	"encoding/json"
 	"net"
 	"net/http"
+	"os"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -145,6 +147,10 @@ type sessionResp struct {
 	Recording     bool   `json:"recording"`
 	// SettingsEditable is true when the dashboard may save settings.
 	SettingsEditable bool `json:"settings_editable"`
+	// Today and Timezone let the page show the PC's calendar day and hours even
+	// when the browser is in another timezone (e.g. a phone on the home network).
+	Today    string `json:"today,omitempty"`
+	Timezone string `json:"timezone,omitempty"`
 }
 
 func (s *Server) handleSession(w http.ResponseWriter, r *http.Request) {
@@ -156,6 +162,8 @@ func (s *Server) handleSession(w http.ResponseWriter, r *http.Request) {
 		resp.Live = cfg.Server.Live && s.d.Hub != nil && s.d.Hub.Enabled()
 		resp.Recording = cfg.Recording()
 		resp.SettingsEditable = s.d.CfgPath != ""
+		resp.Today = s.today()
+		resp.Timezone = zoneName(s.d.Loc)
 	}
 	writeJSON(w, http.StatusOK, resp)
 }
@@ -205,4 +213,26 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 	}
 	http.SetCookie(w, &http.Cookie{Name: cookieName, Value: "", Path: "/", MaxAge: -1, HttpOnly: true, SameSite: http.SameSiteStrictMode})
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+// zoneName gives the IANA name of a location. time.Local reports itself as
+// "Local", so its name is read from /etc/timezone or the /etc/localtime link.
+func zoneName(loc *time.Location) string {
+	if n := loc.String(); n != "Local" && n != "" {
+		return n
+	}
+	if tz := os.Getenv("TZ"); tz != "" && !strings.HasPrefix(tz, ":/") {
+		return strings.TrimPrefix(tz, ":")
+	}
+	if b, err := os.ReadFile("/etc/timezone"); err == nil {
+		if n := strings.TrimSpace(string(b)); n != "" {
+			return n
+		}
+	}
+	if link, err := os.Readlink("/etc/localtime"); err == nil {
+		if i := strings.Index(link, "zoneinfo/"); i >= 0 {
+			return link[i+len("zoneinfo/"):]
+		}
+	}
+	return "UTC"
 }

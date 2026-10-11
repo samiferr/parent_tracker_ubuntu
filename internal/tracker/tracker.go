@@ -205,7 +205,13 @@ func (t *Tracker) Recover() error {
 			kind = model.GapServiceStopped
 			detail = "previous run was stopped"
 		}
-		if now-lastAlive > 2*cfg.SampleInterval.Milliseconds() {
+		// After a clean stop the stop instant is exact, so any real downtime is a
+		// gap; after a crash the last heartbeat can be up to an interval stale.
+		minGap := 2 * cfg.SampleInterval.Milliseconds()
+		if prevClean {
+			minGap = 1000
+		}
+		if now-lastAlive > minGap {
 			if err := db.InsertGap(model.Gap{UID: 0, Start: lastAlive, End: now, Kind: kind}, detail); err != nil {
 				return err
 			}
