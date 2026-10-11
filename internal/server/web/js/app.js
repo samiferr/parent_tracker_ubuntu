@@ -86,7 +86,7 @@ function Dashboard({ session, onSignedOut }) {
   }
 
   return h('div', { className: 'app' },
-    h('a', { className: 'skip', href: '#main', onClick: (e) => { e.preventDefault(); const m = document.getElementById('main'); if (m) { m.setAttribute('tabindex', '-1'); m.focus(); } } }, 'Skip to the content'),
+    h('a', { className: 'skip lm-focusable', href: '#main', onClick: (e) => { e.preventDefault(); const m = document.getElementById('main'); if (m) { m.setAttribute('tabindex', '-1'); m.focus(); } } }, 'Skip to the content'),
     header, body,
     h(SettingsDrawer, { isOpen: settingsOpen, onClose: () => setSettingsOpen(false), editable: session.settings_editable }),
     h(AboutDrawer, { isOpen: aboutOpen, onClose: () => setAboutOpen(false) }));

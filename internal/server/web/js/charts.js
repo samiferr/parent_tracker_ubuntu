@@ -70,7 +70,7 @@ export function HeatLegend() {
   return h('ul', { className: 'legend', 'aria-label': 'Active minutes in the hour' },
     [1, 2, 3, 4, 5].map((l) => h('li', { key: l, className: 'legend__item detail-m' }, h('span', { className: 'swatch heat__cell lvl-' + l, 'aria-hidden': 'true' }), LEVEL_NAMES[l])),
     h('li', { className: 'legend__item detail-m' }, h('span', { className: 'swatch seg seg--gap', 'aria-hidden': 'true' }), 'Tracking gap'),
-    h('li', { className: 'legend__item detail-m' }, h('span', { className: 'swatch heat__cell heat__cell--bed', 'aria-hidden': 'true' }), 'After bedtime'));
+    h('li', { className: 'legend__item detail-m' }, h('span', { className: 'swatch heat__cell heat__cell--bed', 'aria-hidden': 'true' }), 'Activity after bedtime'));
 }
 
 function cellLabel(day, c) {
@@ -85,20 +85,23 @@ function cellLabel(day, c) {
 }
 
 // Heatmap: rows are days, columns are hours 00–23, intensity is active minutes.
-// Hatched cells are tracking gaps; hours after bedtime are outlined (FR-6.28).
+// Hatched cells are tracking gaps; active hours after bedtime are outlined and
+// the hour headings of the bedtime window are underlined (FR-6.28).
 export function Heatmap({ range, onPick, selected }) {
   const hours = [...Array(24).keys()];
+  const bedHours = new Set();
+  range.days.forEach((d) => d.cells.forEach((c) => { if (c.bedtime && !c.skipped) bedHours.add(c.hour); }));
   return h('div', { className: 'heat-wrap' },
     h('div', { className: 'heat', role: 'grid', 'aria-label': 'Active time by day and hour' },
       h('span', { className: 'heat__rowlabel' }),
-      hours.map((hr) => h('span', { key: 'h' + hr, className: 'heat__hour detail-s nums', 'aria-hidden': 'true' }, hr % 3 === 0 ? pad2(hr) : '')),
+      hours.map((hr) => h('span', { key: 'h' + hr, className: 'heat__hour detail-s nums' + (bedHours.has(hr) ? ' heat__hour--bed' : ''), 'aria-hidden': 'true' }, hr % 3 === 0 ? pad2(hr) : '')),
       range.days.map((d) => h(F, { key: d.date },
         h('span', { className: 'heat__rowlabel detail-s nums' }, weekdayShort(d.date) + ' ' + d.date.slice(8)),
         d.cells.map((c) => {
           const cls = ['heat__cell', 'lm-focusable',
             c.skipped ? 'heat__cell--skip' : '', c.future ? 'heat__cell--future' : '', c.no_data && !c.skipped ? 'heat__cell--nodata' : '',
             !c.skipped && !c.future && !c.no_data ? 'lvl-' + level(c.active_ms) : '',
-            c.gap_ms > 0 && !c.active_ms ? 'heat__cell--gap' : '', c.bedtime && !c.skipped ? 'heat__cell--bed' : '',
+            c.gap_ms > 0 && !c.active_ms ? 'heat__cell--gap' : '', c.bedtime && c.active_ms > 0 && !c.skipped ? 'heat__cell--bed' : '',
             selected && selected.date === d.date && selected.hour === c.hour ? 'heat__cell--selected' : ''].filter(Boolean).join(' ');
           const inert = c.skipped || c.future || c.no_data;
           return h('button', { key: d.date + c.hour, type: 'button', className: cls, disabled: inert, 'aria-label': cellLabel(d.date, c),
@@ -130,13 +133,20 @@ export function TimelineStrip({ day, now }) {
       ticks.map((t) => h('span', { key: t, className: 'strip__tick', style: { left: (t / 24) * 100 + '%' } }, pad2(t) + ':00'))));
 }
 
+// niceTop is the full height of a daily chart: the smallest round duration that
+// holds the tallest bar, so a short-use app is not drawn as a sliver.
+const TOPS = [10, 15, 30, 60, 120, 180, 240, 360, 480, 720, 1440].map((m) => m * 60000);
+function niceTop(max) {
+  return TOPS.find((t) => t >= max) || Math.ceil(max / 3600000) * 3600000;
+}
+
 // DailyBars: active time per day, with a dashed line at the average.
 export function DailyBars({ days, label }) {
   const max = Math.max(1, ...days.map((d) => d.active_ms));
   const withData = days.filter((d) => d.has_data);
   const avg = withData.length ? withData.reduce((s, d) => s + d.active_ms, 0) / withData.length : 0;
   const every = days.length > 14 ? 5 : 1;
-  const top = Math.ceil(max / 3600000) * 3600000 || 3600000;
+  const top = niceTop(max);
   return h('div', { className: 'stack stack--tight' },
     h('ol', { className: 'dbars', style: { '--cols': days.length }, 'aria-label': label || 'Active time per day' },
       days.map((d, i) => h('li', { key: d.date },

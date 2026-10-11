@@ -11,6 +11,7 @@ import (
 	"github.com/samiferr/parent_tracker_ubuntu/internal/model"
 	"github.com/samiferr/parent_tracker_ubuntu/internal/rollup"
 	"github.com/samiferr/parent_tracker_ubuntu/internal/storage"
+	"github.com/samiferr/parent_tracker_ubuntu/internal/tracker"
 )
 
 const min = int64(60 * 1000)
@@ -267,7 +268,7 @@ func TestEventsMergeAlertsGapsAndAudit(t *testing.T) {
 	f.db.InsertAlert(model.Alert{CreatedAt: f.at(o, 10, 21, 5), RuleID: "bedtime", UID: 1000, Severity: "warn", Message: "ilyes was active after 21:00."})
 	f.db.InsertGap(model.Gap{UID: 0, Kind: model.GapCrash, Start: f.at(o, 10, 14, 0), End: f.at(o, 10, 14, 30)}, "")
 	f.db.Audit(f.at(o, 10, 14, 31), "system", model.AuditServiceStarted, "")
-	f.db.Audit(f.at(o, 10, 15, 0), "system", model.AuditSensorLost, "gnome-wayland session 2")
+	f.db.Audit(f.at(o, 10, 15, 0), "system", model.AuditSensorLost, "ilyes: gnome-wayland session 2: extension_missing")
 	ev, err := f.v.Events(1000, f.at(o, 1, 0, 0), f.at(o, 12, 0, 0), 50)
 	if err != nil {
 		t.Fatal(err)
@@ -279,7 +280,7 @@ func TestEventsMergeAlertsGapsAndAudit(t *testing.T) {
 		t.Fatalf("newest = %+v", ev.Events[0])
 	}
 	for _, e := range ev.Events {
-		if e.Kind == "gap" && !strings.Contains(e.Description, "30m") {
+		if e.Kind == "gap" && !strings.Contains(e.Description, "30 m") {
 			t.Fatalf("gap = %+v", e)
 		}
 	}
@@ -314,3 +315,35 @@ func TestFmt(t *testing.T) {
 }
 
 func nil2() context.Context { return context.Background() }
+
+func TestAuditDetailHumanisesSensorEvents(t *testing.T) {
+	got := auditDetail(model.AuditEvent{Action: model.AuditSensorLost, Detail: "ben: x11 session 3: agent_silent"})
+	want := "ben's X11 session: the tracker's agent stopped reporting."
+	if got != want {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+	got = auditDetail(model.AuditEvent{Action: model.AuditSensorRestored, Detail: "ben: gnome-wayland session c2"})
+	if got != "ben's Wayland (GNOME) session is reporting again." {
+		t.Fatalf("restored: got %q", got)
+	}
+	if got := auditDetail(model.AuditEvent{Action: model.AuditConfigChanged, Detail: "alerts.bedtime"}); got != "alerts.bedtime" {
+		t.Fatalf("other details pass through, got %q", got)
+	}
+	// An unknown reason still reads as words, never as a code with underscores.
+	got = auditDetail(model.AuditEvent{Action: model.AuditSensorLost, Detail: "ben: x11 session 3: new_reason"})
+	if strings.Contains(got, "_") {
+		t.Fatalf("unknown reason leaked a code: %q", got)
+	}
+}
+
+func TestEverySensorReasonHasAPlainPhrase(t *testing.T) {
+	for _, code := range []string{
+		tracker.ReasonAgentNotRunning, tracker.ReasonAgentSilent, tracker.ReasonExtensionMissing, tracker.ReasonExtensionDisabled,
+		tracker.ReasonExtensionNoBeat, tracker.ReasonX11Unreachable, tracker.ReasonProviderError, tracker.ReasonProviderMismatch,
+		tracker.ReasonTTY, tracker.ReasonUnsupportedDesk,
+	} {
+		if sensorReasons[code] == "" {
+			t.Errorf("no plain-language phrase for sensor reason %q", code)
+		}
+	}
+}

@@ -80,3 +80,9 @@ export function Empty({ title, description, children }) {
 export const joinClasses = (...c) => c.filter(Boolean).join(' ');
 export function Dur({ ms }) { return h('span', { className: 'nums' }, fmtDuration(ms)); }
 export { F };
+
+// Code renders `text` with backtick-quoted parts as <code>.
+export function Code({ children }) {
+  const parts = String(children).split('`');
+  return h(F, null, parts.map((t, i) => (i % 2 ? h('code', { key: i, className: 'code' }, t) : t)));
+}

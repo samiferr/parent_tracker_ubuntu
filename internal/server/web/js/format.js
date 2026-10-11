@@ -58,3 +58,8 @@ export function weekdayShort(d) {
 export const pad2 = (n) => String(n).padStart(2, '0');
 export const hourRange = (b) => b.label + '–' + fmtTime(b.hour_end);
 export const pct = (part, whole) => (whole > 0 ? Math.round((part / whole) * 100) : 0);
+
+// plural renders "1 alert" / "2 alerts" (pass the plural form for irregular nouns).
+export function plural(n, one, many) {
+  return n + ' ' + (n === 1 ? one : (many || one + 's'));
+}

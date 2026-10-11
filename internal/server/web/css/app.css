@@ -40,6 +40,8 @@ a { color: var(--accent-content); }
 .panel--flush { padding: 0; overflow: hidden; }
 .grid-2 { display: grid; gap: var(--spacing-400); grid-template-columns: minmax(0, 1fr); }
 @media (min-width: 60rem) { .grid-2 { grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); } }
+/* Sections side by side share a height: the title row stays put and the panel grows. */
+.grid-2 > .stack { grid-template-rows: auto 1fr; }
 
 /* ---- sign in ---- */
 .signin { min-height: 100vh; display: grid; place-items: center; padding: var(--spacing-300); }
@@ -94,6 +96,7 @@ a { color: var(--accent-content); }
 .heat__rowlabel { color: var(--content-subdued); white-space: nowrap; padding-inline-end: var(--spacing-100); text-align: end; }
 .heat__hour { color: var(--content-subdued); text-align: center; overflow: hidden; }
 .heat__cell { position: relative; height: var(--component-height-75); min-width: 0; padding: 0; border: var(--border-width-100) solid var(--border-default); background: var(--background-layer-2); cursor: pointer; border-radius: var(--corner-radius-75); }
+.heat__hour--bed { text-decoration: underline; text-underline-offset: var(--spacing-50); }
 .heat__cell--bed { border: var(--border-width-200) solid var(--content-heading); }
 .heat__cell--skip, .heat__cell--future, .heat__cell--nodata { border-style: dotted; background: transparent; cursor: default; }
 .heat__cell--selected { outline: var(--border-width-200) solid var(--content-heading); outline-offset: var(--spacing-25); }
@@ -144,3 +147,4 @@ a { color: var(--accent-content); }
 .drawer-body { display: grid; gap: var(--spacing-300); }
 .hero { color: var(--content-heading); }
 .link-button { background: none; border: 0; padding: 0; color: var(--accent-content); cursor: pointer; text-decoration: underline; font: inherit; border-radius: var(--corner-radius-100); }
+.code { font-family: var(--font-mono); }

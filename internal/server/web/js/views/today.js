@@ -1,7 +1,7 @@
 import { h, F, L, useMemo } from '../h.js';
 import { useFetch, useNow, useNarrow } from '../hooks.js';
 import { fmtDuration, fmtSince, fmtTime, fmtLongDay, addDays, pct } from '../format.js';
-import { StateLight, stateLabel, LiveIndicator, Stat, Section, Loading, ErrorBox, DateField, Empty } from '../components.js';
+import { StateLight, stateLabel, LiveIndicator, Stat, Section, Loading, ErrorBox, DateField, Empty, Code } from '../components.js';
 import { TimelineStrip, HourlyBars, Legend, Donut } from '../charts.js';
 
 const { Card, InlineAlert, Button, ActionButton, Badge } = L;
@@ -94,7 +94,7 @@ export function TodayView({ user, session, live, date, setDate, onOpenHourly, he
   const uh = health && health.tracker && health.tracker.users && health.tracker.users.find((u) => u.user === user);
   const degraded = (uh && uh.degraded) || (live.snap && live.snap.degraded && live.snap.degraded[0]);
   if (degraded && alerts.length < 2) alerts.push(h(InlineAlert, { key: 'deg', variant: 'notice', title: degraded.reason === 'tty' || degraded.reason === 'unsupported_desktop' ? 'App tracking is not available' : 'App tracking limited' },
-    h('span', null, degraded.message + ' ', degraded.next_step || degraded.nextStep || '')));
+    h('span', null, degraded.message + ' ', h(Code, null, degraded.next_step || degraded.nextStep || ''))));
 
   const totalsDay = useMemo(() => day, [day]);
   return h('div', { className: 'screen' },
@@ -122,5 +122,5 @@ export function TodayView({ user, session, live, date, setDate, onOpenHourly, he
           h(TimelineStrip, { day, now: isToday && live.snap && live.status === 'live' ? live.snap.last_sample_at : nowMs }),
           h(Legend, null))),
       h(Section, { title: 'By hour', level: 2, actions: h(Button, { variant: 'secondary', size: 's', onPress: () => onOpenHourly(date) }, 'Open hourly history') },
-        h('div', { className: 'panel' }, h(HourlyBars, { buckets: day.hours, compact: true, label: 'Active time by hour' }), h('div', { className: 'stack stack--tight', style: { marginTop: 'var(--spacing-200)' } }, h(Legend, null))))) : null);
+        h('div', { className: 'panel' }, h(HourlyBars, { buckets: day.hours, compact: true, label: 'Active time by hour' }), h('div', { className: 'stack stack--tight', style: { marginTop: 'var(--spacing-200)' } }, h(Legend, { extra: day.bedtime ? h('li', { className: 'legend__item detail-m' }, h('span', { className: 'body-s', style: { textDecoration: 'underline' } }, 'Underlined hour'), ' is after bedtime (' + day.bedtime + ')') : null }))))) : null);
 }

@@ -2,7 +2,9 @@ package view
 
 import (
 	"fmt"
+	"regexp"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/samiferr/parent_tracker_ubuntu/internal/aggregate"
@@ -102,7 +104,7 @@ func (v *Viewer) Events(uid int, from, to int64, limit int) (*EventsView, error)
 			evs = append(evs, Event{TS: g.Start, Kind: "gap", Variant: "notice", Title: "Tracking gap",
 				Description: fmt.Sprintf("Nothing was recorded from %s to %s (%s). %s",
 					time.UnixMilli(g.Start).In(v.Loc).Format("2006-01-02 15:04"), time.UnixMilli(g.End).In(v.Loc).Format("15:04"),
-					FmtHM(g.End-g.Start), gapReasons[g.Kind]), User: names[uid]})
+					FmtHMSpaced(g.End-g.Start), gapReasons[g.Kind]), User: names[uid]})
 		}
 	}
 
@@ -132,9 +134,50 @@ func (v *Viewer) Events(uid int, from, to int64, limit int) (*EventsView, error)
 	return out, nil
 }
 
+// sensorReasons are the plain-language forms of the tracker's sensor reason
+// codes, as they appear in a sentence ("because ...").
+var sensorReasons = map[string]string{
+	"agent_not_running":      "the tracker's agent is not running in the session",
+	"agent_silent":           "the tracker's agent stopped reporting",
+	"extension_missing":      "the GNOME Shell extension is not enabled",
+	"extension_disabled":     "the GNOME Shell extension was turned off",
+	"extension_no_heartbeat": "the GNOME Shell extension stopped answering",
+	"x11_unreachable":        "the agent cannot read the active window",
+	"provider_error":         "the foreground-app sensor reported an error",
+	"provider_mismatch":      "the session type changed",
+	"tty":                    "text console sessions have no foreground app",
+	"unsupported_desktop":    "this desktop is not supported",
+}
+
+var providerNames = map[string]string{"x11": "X11", "gnome-wayland": "Wayland (GNOME)"}
+
+// sensorDetail is "user: provider session N[: reason]", as written by the tracker.
+var sensorDetail = regexp.MustCompile(`^([^:]+): ([a-z0-9-]+) session ([^:]+)(?:: (.+))?$`)
+
 func auditDetail(a model.AuditEvent) string {
 	if a.Detail == "" || a.Detail == "{}" {
 		return ""
+	}
+	switch a.Action {
+	case model.AuditSensorLost, model.AuditSensorRestored, model.AuditSensorUnavailable:
+		if m := sensorDetail.FindStringSubmatch(a.Detail); m != nil {
+			prov := m[2]
+			if n, ok := providerNames[prov]; ok {
+				prov = n
+			}
+			who := fmt.Sprintf("%s's %s session", m[1], prov)
+			if a.Action == model.AuditSensorRestored {
+				return who + " is reporting again."
+			}
+			why, ok := sensorReasons[m[4]]
+			if !ok {
+				why = strings.ReplaceAll(m[4], "_", " ")
+			}
+			if m[4] == "" {
+				return who + "."
+			}
+			return who + ": " + why + "."
+		}
 	}
 	return a.Detail
 }
