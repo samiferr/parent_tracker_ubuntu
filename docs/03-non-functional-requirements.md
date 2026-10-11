@@ -7,7 +7,7 @@
 | ID | Priority | Requirement |
 | --- | --- | --- |
 | NFR-1.1 | MUST | Steady-state CPU usage < **1%** of a single core on a typical desktop. |
-| NFR-1.2 | MUST | Resident memory < **100 MB** total across service + helper. |
+| NFR-1.2 | MUST | Resident memory < **100 MB** total across the service and all running agents. |
 | NFR-1.3 | MUST | Idle disk I/O is negligible; writes are batched (not one fsync per sample). |
 | NFR-1.4 | MUST | Must not cause visible UI latency or input lag on the monitored session. |
 | NFR-1.5 | SHOULD | Sampling interval is configurable (default 5 s; range 1–60 s). |
@@ -35,12 +35,14 @@
 | --- | --- | --- |
 | NFR-3.1 | MUST | **Ubuntu 24.04 LTS and newer only.** Ubuntu 24.04 LTS is the oldest supported release; later LTS and interim releases are supported as they ship. **Ubuntu 22.04 LTS and anything older are explicitly unsupported** — not built for, not tested, no fixes. |
 | NFR-3.2 | MUST | GNOME desktop supported (GNOME Shell 46 or newer, the 24.04 baseline). |
-| NFR-3.3 | MUST | **Wayland and X11** sessions supported where the release offers them, with documented capability degradation on each. Wayland is the primary target; X11 is supported on 24.04 and on desktops/flavours that still ship an X11 session. |
+| NFR-3.3 | MUST | **Both Wayland and X11 graphical sessions are supported, and neither may be dropped.** Wayland is mandatory on every supported release (default session on 24.04; the only GNOME session from Ubuntu 25.10). X11 is mandatory wherever the release or flavour offers an X11 session (24.04's "Ubuntu on Xorg", X11-only flavours such as Xubuntu). Capabilities and degradation for each are documented in [04 §4.13](04-architecture.md#413-session-types-wayland-and-x11). A machine may be used in either session type, and different monitored users may be in different session types at the same time. |
 | NFR-3.4 | SHOULD | KDE Plasma / XFCE supported at a basic level (session/app tracking) on official Ubuntu flavours built on 24.04 or newer; untested DEs must fail gracefully. |
 | NFR-3.5 | MUST | x86_64 and arm64 architectures. |
 | NFR-3.6 | SHOULD | No hard dependency on deprecated stack (e.g., works without X11 tooling on Wayland). |
 | NFR-3.7 | MUST | The code may assume the 24.04 baseline — systemd 255 and glibc 2.39 — and carries **no compatibility shims** for older releases. |
 | NFR-3.8 | MUST | An unsupported OS fails **early and clearly**: `apt` refuses to install the package on a release older than 24.04 (versioned dependencies, NFR-6.8), and `parent-tracker doctor` reports "unsupported OS" with the upgrade hint if the binaries are run anyway. |
+| NFR-3.9 | MUST | Screen-time correctness (active / idle / locked, sessions, gaps) is **independent of the session type**: the same scripted session produces the same numbers on Wayland and on X11. |
+| NFR-3.10 | MUST | The absence of an X11 session on a release is **not an error**: `doctor` reports it as expected and no X11 tooling is required on such systems. Conversely, an unavailable Wayland extension is a *degraded* state with a visible banner, never a silent one. |
 
 ## 3.4 Security
 
@@ -59,7 +61,7 @@
 | ID | Priority | Requirement |
 | --- | --- | --- |
 | NFR-5.1 | MUST | Data stays on-device unless the admin explicitly enables sync/export. |
-| NFR-5.2 | MUST | No analytics/telemetry phone-home ever. |
+| NFR-5.2 | MUST | No analytics/telemetry phone-home ever. This includes the dashboard itself: it loads no scripts, styles, fonts or icons from any other origin (see [12 – Design System: Lumen](12-design-system-lumen.md), DS-9). |
 | NFR-5.3 | MUST | Collection is scoped to allowlisted users only; no capture of other accounts. |
 | NFR-5.4 | SHOULD | The monitored child can view their collected data and knows tracking is on. |
 | NFR-5.5 | MUST | High-sensitivity collectors (screenshots, full URLs, search terms) are off by default. |
@@ -77,6 +79,8 @@
 | NFR-6.7 | MAY | Auto-update channel / signed releases. |
 | NFR-6.8 | MUST | The `.deb` declares versioned dependencies matching the baseline (`systemd (>= 255)`, and `libc6 (>= 2.39)` if dynamically linked) so that installation on Ubuntu 22.04 or older fails at the `apt`/`dpkg` dependency check, before anything is installed or enabled. |
 | NFR-6.9 | MUST | Schema migrations that introduce hourly history (new tables) are additive and **backfill** from existing intervals/samples where they still exist, without losing or altering existing data. |
+| NFR-6.10 | MUST | Packages are built for **both amd64 and arm64** (NFR-3.5); the build and docs name the architecture explicitly in the file name. |
+| NFR-6.11 | MUST | The package ships the licences and notices of bundled third-party material (Lumen/Spectrum-derived values, Lucide, React, the fonts) in `/usr/share/doc/parent-tracker/copyright`. |
 
 ## 3.7 Observability & logging
 
@@ -92,9 +96,13 @@
 | ID | Priority | Requirement |
 | --- | --- | --- |
 | NFR-8.1 | MUST | Dashboard responsive enough for tablet/phone on the LAN. |
-| NFR-8.2 | SHOULD | Dashboard is keyboard accessible and screen-reader friendly. |
-| NFR-8.3 | SHOULD | Clear language; avoid shaming tone in reports shown to the child. |
+| NFR-8.2 | SHOULD | Dashboard is keyboard accessible and screen-reader friendly. Known contrast limits inherited from Lumen's field borders are listed in [12 §12.8](12-design-system-lumen.md#128-known-lumen-limitations-and-how-the-project-handles-them). |
+| NFR-8.3 | SHOULD | Clear language; avoid shaming tone in reports shown to the child. The child's activity is never presented with "good/bad" status styling. |
 | NFR-8.4 | MAY | Localisation infrastructure (English first). |
+| NFR-8.5 | MUST | **The dashboard UI is built with the Lumen design system**: Lumen tokens and components only, no second UI kit or icon set, no hard-coded colours/sizes/radii. Full rules: [12 – Design System: Lumen](12-design-system-lumen.md). |
+| NFR-8.6 | MUST | All dashboard assets (Lumen files, React 18, fonts, icons) are vendored and served by the daemon; no request leaves the origin. Lumen ships no font files, so Source Sans 3 and Source Code Pro are bundled by this project. |
+| NFR-8.7 | MUST | Light and dark themes (following the OS by default); `prefers-reduced-motion` honoured; status never conveyed by colour alone. |
+| NFR-8.8 | SHOULD | Phone/tablet usability despite Lumen's desktop-only scale: responsive layout and larger control sizes on narrow screens. |
 
 ## 3.9 Legal / compliance
 

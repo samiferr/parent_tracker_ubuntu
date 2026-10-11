@@ -9,8 +9,8 @@
 │  ┌───────────────────────────┐      ┌──────────────────────────────┐ │
 │  │ parent-trackerd (systemd) │      │ parent-tracker-agent (per-   │ │
 │  │  - session collector      │◄─────┤ user session, GUI access)    │ │
-│  │  - activity/idle collector│ D-Bus│  - foreground window         │ │
-│  │  - storage + aggregation  │      │  - browser history (opt-in)  │ │
+│  │  - activity/idle collector│ sock │  - foreground app (X11 or    │ │
+│  │  - storage + aggregation  │      │    GNOME Shell ext. relay)   │ │
 │  │  - scheduler / retention  │      └──────────────────────────────┘ │
 │  │  - alert engine           │                                       │
 │  │  - dashboard (HTTP + SSE) │      ┌──────────────────────────────┐ │
@@ -23,22 +23,29 @@
 └──────────────────────────────────────────────────────────────────────┘
 ```
 
-A single always-on **system daemon** owns storage and logic. Because Wayland
-and per-user GUI data are hard to read from a system daemon, a small
-**per-session agent** runs inside the monitored user's graphical session and
-reports upwards over a local Unix socket / D-Bus. On X11, the daemon can do
-more itself; the agent remains the portable path.
+A single always-on **system daemon** owns storage and logic. Session state
+(active / idle / locked / suspended) comes from **systemd-logind** and does not
+depend on the session type. Foreground-app data is GUI-level, so a small
+**per-session agent** runs *as the monitored user* inside their graphical
+session and reports upwards over a local Unix socket authenticated by peer
+credentials. The agent is used for **both** session types: on X11 it reads the
+focused window itself; on Wayland it relays what the project's GNOME Shell
+extension reports (see [4.13](#413-session-types-wayland-and-x11)). Keeping the
+root daemon out of users' X servers and sessions gives one code path, works with
+the daemon's sandboxing, and means the daemon never needs a user's X
+credentials.
 
 ## 4.2 Components
 
 | Component | Privilege | Responsibility |
 | --- | --- | --- |
 | `parent-trackerd` | root or dedicated `parent-tracker` user | Orchestration, storage, aggregation, retention, alerts, dashboard. |
-| `parent-tracker-agent` | monitored user session | GUI-level collection (foreground window), browser history, idle handshake. |
-| Session collector | daemon | Consumes systemd-logind / D-Bus session & lock/idle signals. |
-| Activity collector | daemon + agent | Builds active/idle timeline. |
-| App/window collector | agent (Wayland), daemon or agent (X11) | Foreground app samples. |
-| Web collector | daemon (reads browser DBs) or agent | Domain/URL history. |
+| `parent-tracker-agent` | monitored user (systemd **user** unit, one per graphical session) | Foreground-app collection for its session (X11 provider, or relay of the GNOME Shell extension), heartbeat to the daemon. Untrusted by design: it runs as the user it observes (see [06](06-security-privacy-and-legal.md), SEC-35). |
+| GNOME Shell extension | monitored user's GNOME Shell (Wayland sessions) | Thin sensor: reports focused window changes to the agent. No network, no files, no screen access (see [4.13](#413-session-types-wayland-and-x11)). |
+| Session collector | daemon | Consumes systemd-logind session properties and signals (`Type`, `Active`, `IdleHint`, `IdleSinceHint`, `LockedHint`) over the system bus. Independent of session type. |
+| Activity collector | daemon | Builds the active/idle/locked/suspended timeline from the session collector. |
+| Foreground provider | agent | X11 provider (EWMH) for `x11` sessions; GNOME Wayland provider (extension relay) for `wayland` sessions. Exactly one is active per session. |
+| Web collector | daemon (reads browser DBs as root; home directories are not world-readable) | Domain/URL history. |
 | Storage layer | daemon | SQLite with WAL, batched writes, migrations. |
 | Aggregator | daemon | Rolls samples into per-app/per-day totals **and per-hour buckets** (see [4.12](#412-hourly-rollup)). |
 | Live hub | daemon (in-memory) | Holds the latest state per monitored user and fans it out to dashboard clients (see [4.11](#411-live-pipeline-real-time-dashboard)). |
@@ -51,28 +58,28 @@ more itself; the agent remains the portable path.
 
 | Signal | X11 | Wayland (GNOME) | Fallback |
 | --- | --- | --- | --- |
-| Session on/off | logind D-Bus | logind D-Bus | — |
-| Lock/idle | logind IdleHint, screensaver D-Bus | same | input idle timer |
-| Foreground app | `_NET_ACTIVE_WINDOW` via EWMH, `xdotool`/`wmctrl` | GNOME Shell extension or `org.gnome.Shell` focused-app API | PID of focused window; heuristic |
-| Window title | X11 property `_NET_WM_NAME` | Shell extension | disabled/optional |
-| Screen on/off | DPMS/UPower | same | — |
-| Browser history | sqlite read (Firefox `places.sqlite`, Chromium `History`) | same | — |
+| Session on/off, type, remote | logind D-Bus (system bus): `Active`, `Type`, `Remote`, `Class` | same | — |
+| Lock / idle | logind `LockedHint`, `IdleHint`, `IdleSinceHint` (set by the desktop session; idle onset back-dated to `IdleSinceHint`) | same | input idle timer in the agent, only where the desktop does not maintain `IdleHint` (FR-2.5) |
+| Foreground app | Agent reads EWMH `_NET_ACTIVE_WINDOW` (+ `_NET_WM_PID`, `WM_CLASS` / GTK application id) in the user's X session | GNOME Shell extension (`global.display.focus_window` → app via `Shell.WindowTracker`) relayed by the agent | app = "unavailable" (never inferred) |
+| Window title | `_NET_WM_NAME` | extension, **only when title capture is enabled** | disabled |
+| Screen on/off (SHOULD) | DPMS state | Mutter display power-save state on the user's session bus (validate in Phase 1) | folded into idle/locked |
+| Browser history | sqlite read (Firefox `places.sqlite`, Chromium `History`), same on both | same | — |
 | Device connect | udev monitor | udev monitor | — |
 
-> **Constraint:** Wayland deliberately prevents arbitrary clients from reading
-> other apps' windows. A GNOME Shell extension is the supported route and must
-> be installed/enabled per monitored session; without it, Wayland app-level
-> tracking degrades to coarse signals (running processes, active-at-login).
-> This degradation MUST be visible in `doctor` output and the dashboard.
+> **Constraint — why the Wayland route is an extension.** Wayland deliberately
+> prevents clients from reading other apps' windows. GNOME Shell's
+> `org.gnome.Shell.Introspect` interface *can* list windows, but it only answers
+> an allow-list of callers (the XDG desktop portals) unless the shell is in
+> unsafe mode, and running as root does not bypass the check (see the
+> [GNOME Discourse thread](https://discourse.gnome.org/t/unable-to-call-the-remote-getwindows-gnome-method-via-dbus/21201)).
+> Enabling unsafe mode or patching the allow-list would weaken the user's
+> desktop and is **not** an acceptable approach. A small GNOME Shell extension,
+> which runs inside the shell and may read `focus_window`, is the supported
+> route. Without it, Wayland app-level tracking is unavailable (screen time is
+> unaffected). This degradation MUST be visible in `doctor` and the dashboard.
 
-> **Session types by release.** Ubuntu 24.04 offers both a Wayland and an X11
-> GNOME session. Ubuntu 25.10 and later ship the GNOME session on Wayland only
-> (X11 applications keep running through XWayland), see the
-> [Ubuntu announcement](https://discourse.ubuntu.com/t/ubuntu-25-10-drops-support-for-gnome-on-xorg/62538).
-> With 24.04+ as the only supported baseline, the Wayland path is the primary
-> one and the X11 path matters mostly on 24.04 and on flavours that still ship
-> an X11 session. Wayland app tracking (open question Q2) is therefore a core
-> concern, not a corner case.
+> **Which sessions must be supported, and why both:** see
+> [4.13](#413-session-types-wayland-and-x11).
 
 ## 4.4 Data flow
 
@@ -88,12 +95,24 @@ more itself; the agent remains the portable path.
 
 ## 4.5 Session/agent coordination
 
-- Daemon watches logind for a monitored user's graphical session start.
-- Daemon starts the agent inside that session via systemd user unit or
-  `systemd-run --user --scope` with correct `XDG_*`/D-Bus environment.
-- Agent opens a Unix-domain socket (owned root) to the daemon, authenticating
-  by peer credentials (SO_PEERCRED) and only permitted for the monitored UID.
-- If the agent dies, the daemon records a gap and restarts it (bounded retries).
+- The package installs the agent as a **systemd user unit enabled for all
+  users** (`/usr/lib/systemd/user/parent-tracker-agent.service`, started with
+  `graphical-session.target`). The root daemon does not have to inject
+  `DISPLAY`, `XAUTHORITY` or the session bus address into anything: the agent
+  starts inside the user's own graphical session with the right environment.
+- The daemon watches logind for session start (including `Type` and `Class`)
+  and decides per session whether it is monitored. The agent connects to the
+  daemon's Unix-domain socket (owned by root); the daemon authenticates the
+  peer by credentials (`SO_PEERCRED`) and accepts it **only for a monitored UID
+  and a non-greeter, non-remote session**. For any other user the connection is
+  refused and the agent exits having collected nothing (NFR-5.3: no capture of
+  other accounts).
+- The agent starts collecting only after the daemon answers "monitored" and
+  tells it which provider and options to use (e.g. whether titles are allowed).
+- Agent heartbeats every sampling interval. If the agent or the extension goes
+  silent, the daemon records a gap in **app** data only (session data from
+  logind is unaffected), raises the "app sensor lost" state (SEC-35), and
+  relies on systemd to restart the agent (bounded back-off).
 
 ## 4.6 Storage
 
@@ -112,15 +131,21 @@ more itself; the agent remains the portable path.
 
 - Language: Rust or Go (single static binary, low overhead, good systemd
   integration). Python acceptable for a prototype but watch memory.
-- Dashboard: embedded static assets + small JSON API.
+- Dashboard: embedded static assets + small JSON API. The front end is a
+  **React 18 + Lumen** application ([12](12-design-system-lumen.md)); Lumen,
+  React and the fonts are vendored and embedded in the binary (no CDN, DS-9).
+  The front-end build tool is a Phase 0 decision; its output is static files.
 - No external runtime deps beyond glibc 2.39 (the Ubuntu 24.04 baseline).
 
 ## 4.9 Failure modes & handling
 
 | Failure | Expected handling |
 | --- | --- |
-| Agent can't start (no GUI libs) | Degrade to session-only; log once; surface in `doctor`. |
-| Wayland extension missing | Degrade app tracking; notify admin once. |
+| Agent can't start or is killed | Degrade to session-only (logind data keeps flowing); record an app-data gap; surface in `doctor` and the dashboard; systemd restarts it with back-off. |
+| Wayland extension missing, disabled, or not yet loaded (user has not logged in again since install) | App tracking unavailable for that session; banner "App tracking limited"; one alert; screen time unaffected. |
+| X11 server unreachable from the agent | App tracking unavailable for that session; logged once; screen time unaffected. |
+| Session type is `tty` or unknown | No GUI provider; session-only. |
+| Greeter (login screen) or remote (SSH) session | Never tracked / excluded from screen time. |
 | Browser DB locked/encrypted | Skip cycle; retry; don't crash. |
 | Disk full | Stop writes, prune, alert; keep service alive. |
 | Clock jump | Clamp/flag intervals; never negative durations. |
@@ -139,7 +164,7 @@ Ubuntu 22.04 LTS and older are out of scope (no builds, no CI, no fixes).
 | --- | --- | --- |
 | systemd | 255 | logind D-Bus API and unit-hardening directives can be used without fallbacks. |
 | glibc | 2.39 | Target for any dynamically linked build; the `.deb` dependency gate. |
-| GNOME Shell | 46 | Floor for the Wayland GNOME Shell helper/extension (`shell-version` ≥ 46). |
+| GNOME Shell | 46 | Floor for the Wayland GNOME Shell extension (`shell-version` ≥ 46). GNOME 45 moved extensions to standard ES modules, so the extension is written in ESM only and needs no legacy-import code path. |
 | Kernel | 6.8 | No special requirements; listed for test-matrix clarity. |
 
 Consequences:
@@ -178,7 +203,7 @@ Consequences:
   | `user`, `uid` | Monitored account. |
   | `state`, `since` | `active / idle / locked / screen_off / logged_out`, and when this state began. |
   | `app` | `{id, name}` of the foreground app, plus `title` **only** if `collectors.window_title` is on; `null` when unavailable. |
-  | `app_status` | `ok`, `degraded` (e.g. Wayland without helper) or `off`. |
+  | `app_status` | `ok`, `degraded` (e.g. Wayland without the extension) or `off`. |
   | `today` | `{active_ms, idle_ms, locked_ms, gap_ms}` including the in-progress interval, clamped to `last_sample_at`. |
   | `hour` | Current local hour's `{hour_start, active_ms}` (feeds the hourly chart live). |
   | `last_sample_at`, `interval_ms`, `server_time` | Freshness, sampling cadence, and the server clock so the browser can correct skew. |
@@ -223,8 +248,8 @@ Consequences:
   on demand from stored intervals plus the live hub's open interval.
 - **Gaps vs. "not signed in".** For each hour: `active`, `idle` and `locked`
   come from intervals; `gap_ms` is overlap with recorded tracking gaps (service
-  stopped/crashed, unclean session end); the remainder of the hour is *not in a
-  session / PC off* and is derived at read time, not stored. The UI keeps the
+  stopped/crashed, unclean session end); the remainder of the hour is *not
+  signed in, suspended or powered off* and is derived at read time, not stored. The UI keeps the
   three apart (FR-6.25). Hours before a user's first recorded interval have no
   rows and render as "no data yet".
 - **Migration/backfill.** The release that introduces hourly history adds the two
@@ -241,3 +266,124 @@ Consequences:
     day × hour grid (heatmap) or the average active time per hour-of-day.
   - Both are authenticated like all `/api/*` routes and read only aggregates
     (NFR-1.11).
+
+## 4.13 Session types: Wayland and X11
+
+### 4.13.1 Why both are required
+
+| Release / flavour | Graphical sessions offered |
+| --- | --- |
+| Ubuntu 24.04 LTS (GNOME) | **Wayland** (default) and **X11** ("Ubuntu on Xorg", chosen from the login screen) |
+| Releases before 25.10 (GNOME) | Both |
+| Ubuntu 25.10 and later (GNOME) | **Wayland only**; X11 applications still run through XWayland, but the Xorg GNOME session is gone ([announcement](https://discourse.ubuntu.com/t/ubuntu-25-10-drops-support-for-gnome-on-xorg/62538)) |
+| X11-only flavours (e.g. Xubuntu, Ubuntu MATE) | X11 only |
+| Kubuntu (KDE Plasma) | X11 and Wayland sessions, depending on the Plasma version |
+
+Consequences, and the policy they lead to:
+
+1. **Wayland is mandatory on every supported release.** It is the default on
+   24.04 and the only GNOME session from 25.10 on. A tracker that only worked
+   on X11 would see no application data at all on the default session.
+2. **X11 is mandatory wherever a supported release or flavour offers it.** 24.04
+   users still pick "Ubuntu on Xorg" (remote-desktop tools, some GPU setups,
+   legacy apps) and X11-only flavours exist. Supporting it is cheap (EWMH), and
+   the same machine can be used in either type from one login to the next.
+3. **Neither may affect the core metric.** Screen time comes from
+   systemd-logind and must be identical on both (NFR-3.9, FR-3.10).
+4. **X11 support is not an error condition where absent.** On a release with no
+   X11 session, `doctor` says so as expected (NFR-3.10). Revisit the X11 MUST
+   when no supported release or flavour offers an X11 session any more.
+
+### 4.13.2 Support matrix
+
+| Capability | GNOME on Wayland (primary) | GNOME on X11 | KDE Plasma on Wayland | Other X11 desktops (Xfce, MATE, …) | tty / SSH |
+| --- | --- | --- | --- | --- | --- |
+| Active / idle / locked / suspended time | Yes (logind) | Yes (logind) | Yes (logind) | Yes (logind) | tty: session only; SSH: excluded |
+| Live state, hourly state time | Yes | Yes | Yes | Yes | — |
+| Foreground app, per-app hourly | Yes, **with the extension**; otherwise unavailable | Yes | No in the first release (FR-3.13) | Yes, with an EWMH-compliant window manager | No |
+| Window title (opt-in) | Yes, with the extension | Yes | No | Yes | No |
+| Screen-off (SHOULD) | Best effort (display power-save state) | Best effort (DPMS) | No | Best effort (DPMS) | No |
+
+Desktops other than GNOME are best effort (NFR-3.4): they must fail gracefully
+and still record screen time.
+
+### 4.13.3 Detection and provider selection
+
+- The daemon reads each session's **`Type`** (`x11`, `wayland`, `tty`, `mir`,
+  `unspecified`), **`Class`** (`user`, `greeter`, …), `Desktop` and `Remote`
+  from logind. It does not trust environment variables of the daemon; the agent's
+  `XDG_SESSION_TYPE` is only a cross-check (on disagreement, trust logind and log).
+- Greeter and remote sessions are never tracked (FR-2.9, FR-2.8).
+- Provider choice, fixed for the life of the session:
+
+  | `Type` | Desktop | Provider |
+  | --- | --- | --- |
+  | `x11` | any | X11 provider |
+  | `wayland` | GNOME | GNOME Wayland provider (extension) |
+  | `wayland` | other | none (screen time only) |
+  | `tty`, `mir`, `unspecified` | any | none |
+
+- The type and desktop are stored on the `sessions` row (`session_type`,
+  `desktop`, see [05](05-data-model.md)).
+
+### 4.13.4 X11 provider
+
+- Runs in the agent, i.e. inside the user's own X session (correct `DISPLAY` /
+  `XAUTHORITY` for free). Reads `_NET_ACTIVE_WINDOW` from the root window, then
+  `_NET_WM_PID`, `WM_CLASS` / GTK application id, and `_NET_WM_NAME` (title only
+  if allowed). Needs an EWMH-compliant window manager (Mutter, KWin, Xfwm4,
+  Marco, …); otherwise app data is "unavailable".
+- May speak the X protocol directly or shell out to `xprop` (package `x11-utils`,
+  *Recommends*; only needed on systems that offer X11 sessions).
+- **Never started on a `wayland` session** (FR-3.9). Under Wayland, X11 tools
+  only see XWayland clients, which are not necessarily the focused window, so
+  results would be silently wrong.
+
+### 4.13.5 GNOME Wayland provider (Shell extension)
+
+- A small extension written as an ES module (GNOME 45+), with `shell-version`
+  entries for the GNOME majors the project has tested (46 and newer). A GNOME
+  release the extension does not list will not load it, so each new Ubuntu/GNOME
+  release is a tracked compatibility task with its own CI check.
+- Behaviour: subscribes to focus changes of the shell's display
+  (`notify::focus-window`) and sends `{app id, app name, pid}` — plus the window
+  title **only when the agent tells it title capture is on** — to the agent
+  (session bus or a local socket). It has **no network access, writes no files,
+  reads no pixels and no input**. It does only what is needed to answer "which
+  app is in front?".
+- Deployment (to be validated on 24.04 in a Phase 2 spike): files under
+  `/usr/share/gnome-shell/extensions/<uuid>/`, enabled for monitored users through
+  a **system-wide dconf default** for `org.gnome.shell enabled-extensions`, locked
+  so a standard user cannot drop it from their own settings. GNOME Shell loads
+  extensions at login and on Wayland cannot be restarted inside a session, so the
+  monitored user must **log out and in once** after installation (`doctor` and the
+  user guide say so).
+- Health: the agent reports the extension state (`active`, `missing`,
+  `disabled`, `no-heartbeat`); the daemon audit-logs each transition, shows the
+  banner and raises the "app sensor lost" alert (SEC-35).
+- Limits: it runs inside the user's shell, so a determined user can disable or
+  spoof it. The design aims at **evidence, not enforcement** (SEC-35).
+- Rejected alternatives: GNOME unsafe mode or `Eval`; patching the Introspect
+  allow-list; screenshot- or portal-based inference (invasive); process-list
+  heuristics (cannot tell which app is focused, so never used for attribution).
+
+### 4.13.6 Multiple sessions and users
+
+- Every logind session is tracked independently, each with its own provider and
+  health. Only the **active** seat session accrues active time (fast user
+  switching, FR-2.7).
+- One monitored user may use a Wayland session today and an X11 session
+  tomorrow; two monitored users may be in different types at once. Both are
+  handled by the per-session design above.
+- Degradation banners name the session type, e.g. "App tracking limited in a
+  Wayland session — the GNOME Shell extension is not enabled".
+
+### 4.13.7 Validation spikes
+
+- **Phase 1:** confirm on a real 24.04 machine that logind `Type`, `IdleHint`,
+  `IdleSinceHint` and `LockedHint` behave the same on the Wayland and the Xorg
+  GNOME session; measure the idle delay's effect on AC-4; decide the screen-off
+  source.
+- **Phase 2:** extension install / enable / lock on 24.04 (including that a
+  standard user cannot disable it), behaviour on the newest supported release,
+  and the X11 provider on a 24.04 Xorg session.

@@ -9,15 +9,14 @@ locked time, foreground applications, and (optionally) browser domains.
 > minor child on your own device, openly, not for covert surveillance. See
 > [Privacy and legal](#18-privacy-and-legal) at the end.
 
-> **Supported systems.** Parent Tracker supports **Ubuntu 24.04 LTS and newer
-> only**. Ubuntu 22.04 and older are not supported (see
-> [section 2](#2-requirements-and-capabilities)).
+> **Status: not implemented yet.** Parent Tracker is currently a specification;
+> no code exists. This guide describes how the finished product is **intended**
+> to be installed and used, so every command, screen and setting below is the
+> planned interface. See the [implementation status](11-implementation-status.md).
 
-> **Items marked 🆕** — the live view, the hourly history, `report --by hour`
-> and the `server.live`, `server.live_max_clients` and `retention.hourly_usage`
-> settings — are specified but may not be in your installed build yet. Check
-> `parent-tracker version` and the
-> [implementation status](11-implementation-status.md).
+> **Supported systems.** Ubuntu **24.04 LTS and newer only** (22.04 and older
+> are not supported), on **Wayland or X11** sessions. See
+> [section 2](#2-requirements-and-capabilities).
 
 ## Contents
 
@@ -27,8 +26,8 @@ locked time, foreground applications, and (optionally) browser domains.
 4. [First-time setup](#4-first-time-setup)
 5. [Day-to-day service management](#5-day-to-day-service-management)
 6. [The dashboard](#6-the-dashboard)
-   - [Live view 🆕](#live-view-)
-   - [Hourly history 🆕](#hourly-history-)
+   - [Live view](#live-view)
+   - [Hourly history](#hourly-history)
    - [Exposing the dashboard on your LAN](#exposing-the-dashboard-on-your-lan)
 7. [Command-line reference](#7-command-line-reference)
 8. [Configuration reference](#8-configuration-reference)
@@ -52,26 +51,31 @@ locked time, foreground applications, and (optionally) browser domains.
 Parent Tracker runs as a background system service and records, for an explicit
 **allowlist** of local accounts only:
 
-- **Session activity** — login/logout, active, idle, locked, and screen-off
-  time, obtained from `systemd-logind`.
-- **Foreground applications** — which app was in front and for how long
-  (on X11 out of the box; Wayland degrades, see below).
+- **Session activity** — login/logout and active, idle, locked and suspended
+  time, obtained from `systemd-logind`. This works the same on Wayland and X11
+  sessions. Screen-off is told apart from idle/locked only where the desktop
+  provides a signal; otherwise it counts as idle or locked.
+- **Foreground applications** — which app was in front and for how long: read
+  directly on X11 sessions, and through a small GNOME Shell extension that the
+  package installs on Wayland sessions (see
+  [section 2](#2-requirements-and-capabilities)).
 - **Browser domains** (optional, off by default) — which websites were visited.
 - **Tracking gaps** — if the service is stopped or the machine crashes, the gap
   is recorded and shown to you rather than silently hidden.
 
 And it shows you that data two extra ways:
 
-- 🆕 **Live** — what is happening right now (current state, foreground app,
+- **Live** — what is happening right now (current state, foreground app,
   today's running totals), updating by itself on the dashboard.
-- 🆕 **By hour** — usage broken down per hour of the day, for any day and as a
+- **By hour** — usage broken down per hour of the day, for any day and as a
   7- or 30-day pattern, so you can see *when* the PC was used.
 
 Everything is stored **locally** in a SQLite database. There is no cloud, no
 account, and no telemetry.
 
 It does **not**: take screenshots, read messages, record keystrokes, or filter
-network traffic (all deferred or out of scope).
+network traffic (all deferred or out of scope). Daily digests, PDF export and
+time limits are planned for later phases.
 
 ## 2. Requirements and capabilities
 
@@ -80,31 +84,66 @@ network traffic (all deferred or out of scope).
   them. Official Ubuntu flavours (Kubuntu, Xubuntu, …) based on 24.04 or newer
   are best effort. If your PC is still on 22.04, upgrade Ubuntu to 24.04 first
   (`sudo do-release-upgrade`), then install Parent Tracker.
-- **systemd** 255 or newer with `systemd-logind` (standard on Ubuntu 24.04+).
-- For application tracking on X11: the `xprop` tool (from `x11-utils`, installed
-  automatically as a recommended package).
-- The service runs as root (needed to observe other users' sessions and read
-  their browser databases) but is heavily sandboxed.
+- **Either a Wayland or an X11 session.** Both are supported (see below); you do
+  not have to choose one for the whole PC.
+- For application tracking on X11 sessions the package may use the `xprop` tool
+  (from `x11-utils`, installed as a *recommended* package). It is only used on
+  X11 sessions and is not needed on a Wayland-only system.
+- The service runs as root, because it must read monitored users' home
+  directories (for example browser databases), which are not world-readable. It
+  is heavily sandboxed. Reading session state itself does not need root.
+- A small **agent** runs inside each monitored user's graphical session (as that
+  user, started automatically). There is nothing to set up.
 
-| Capability | X11 session | Wayland session |
-| --- | --- | --- |
-| Active / idle / locked time | ✅ | ✅ |
-| Application (foreground) time | ✅ | ⚠️ Degraded |
-| Window titles (optional) | ✅ | ⚠️ Degraded |
-| Browser domains (optional) | ✅ | ✅ |
-| 🆕 Live state and running totals | ✅ | ✅ |
-| 🆕 Live foreground app | ✅ | ⚠️ Degraded |
-| 🆕 Per-hour state time | ✅ | ✅ |
-| 🆕 Per-hour app breakdown | ✅ | ⚠️ Degraded |
+| Capability | X11 session | Wayland session with the extension | Wayland session without it |
+| --- | --- | --- | --- |
+| Active / idle / locked time | Yes | Yes | Yes |
+| Application (foreground) time | Yes | Yes | Not available |
+| Window titles (optional) | Yes | Yes | Not available |
+| Browser domains (optional) | Yes | Yes | Yes |
+| Live state and running totals | Yes | Yes | Yes |
+| Live foreground app | Yes | Yes | "App unavailable" |
+| Per-hour state time | Yes | Yes | Yes |
+| Per-hour app breakdown | Yes | Yes | Not available |
 
-On **Wayland**, GNOME does not let a system service see which window has focus.
-Screen time is still recorded, but per-app time is not, and the dashboard shows
-a "degraded" banner. A GNOME Shell helper to close this gap is planned but not
-yet implemented.
+### Wayland and X11 sessions
 
-Ubuntu 24.04 offers both Wayland and X11 sessions. **Ubuntu 25.10 and later
-ship the GNOME session on Wayland only**, so on those releases the Wayland
-column above is the one that applies.
+Ubuntu can display the desktop in two ways, and Parent Tracker supports both:
+
+- **Wayland** — the default on Ubuntu 24.04, and the **only** GNOME session from
+  Ubuntu 25.10 on.
+- **X11** — still available on Ubuntu 24.04 ("Ubuntu on Xorg", chosen from the
+  gear icon on the login screen) and used by X11-only flavours such as Xubuntu.
+
+To see which one a session uses, run `echo $XDG_SESSION_TYPE` in the child's
+session (it prints `wayland` or `x11`), or look at `parent-tracker status`,
+which lists the session type of every monitored session.
+
+Screen time is read from `systemd-logind` and is **identical** on both. What
+differs is how the app in front is found:
+
+- **X11:** the agent reads the active window directly.
+- **Wayland:** GNOME deliberately stops programs from reading other programs'
+  windows, and a root service cannot get around it. Parent Tracker therefore
+  installs a small **GNOME Shell extension** that reports only the app in front
+  (and the window title, only if you turned title capture on). The extension has
+  no network access and cannot see the screen, keystrokes or messages.
+
+After installing, the extension is enabled automatically for monitored users,
+but GNOME Shell only loads it at login. **Ask the child to log out and back in
+once.** Check with `parent-tracker doctor`. Until then the dashboard says "App
+tracking limited" and screen time is recorded as normal.
+
+If the extension is later disabled or removed, or the agent is stopped, the
+dashboard shows "App sensor lost" and you get an alert. Because that data is
+collected inside the child's own session, a determined user could interfere with
+it; screen time from `systemd-logind` is not affected. This is another reason to
+use Parent Tracker openly, with the child's knowledge.
+
+Other desktops (KDE Plasma, Xfce, MATE, …) are supported on a best-effort basis:
+screen time is always recorded; app tracking works on X11 sessions with a
+standard window manager, and is not available on KDE Plasma under Wayland in the
+first release.
 
 Verify your environment at any time with:
 
@@ -116,18 +155,21 @@ parent-tracker doctor
 
 ### 3.1 From the `.deb` package (recommended)
 
-Build or obtain `parent-tracker_<version>_amd64.deb`, then:
+Obtain `parent-tracker_<version>_<arch>.deb` (`<arch>` is `amd64` or `arm64`),
+then:
 
 ```bash
-sudo apt install ./parent-tracker_0.1.1_amd64.deb
+sudo apt install ./parent-tracker_<version>_<arch>.deb
 ```
 
-This installs both binaries, the systemd unit, and a default configuration.
-The package:
+This installs the binaries, the systemd units, the GNOME Shell extension, and a
+default configuration. The package:
 
 - creates `/etc/parent-tracker/config.toml` from the shipped example if it does
   not already exist,
 - enables (but does not forcibly start) `parent-trackerd.service`,
+- installs the per-session agent as a systemd user unit and the GNOME Shell
+  extension system-wide, enabled by default for monitored users,
 - creates the data and runtime directories with restrictive permissions.
 
 **Next step:** run the first-time setup (section 4). The service will not
@@ -140,19 +182,20 @@ collect anything until you choose which users to monitor.
 
 ### 3.2 From source
 
-Requires Go 1.24+ (tested with 1.27):
+The build is planned around Go (the exact toolchain version will be fixed in
+Phase 0):
 
 ```bash
-git clone <repo> ubuntu_parent_tracker
-cd ubuntu_parent_tracker
-make build          # -> bin/parent-trackerd, bin/parent-tracker
+git clone https://github.com/samiferr/parent_tracker_ubuntu
+cd parent_tracker_ubuntu
+make build          # -> bin/parent-trackerd, bin/parent-tracker, bin/parent-tracker-agent
 make test           # optional: run the test suite
 ```
 
 To produce a package from source:
 
 ```bash
-make deb            # -> dist/parent-tracker_<version>_amd64.deb
+make deb            # -> dist/parent-tracker_<version>_<arch>.deb
 ```
 
 To run the binaries directly during development you can point them at a
@@ -174,7 +217,7 @@ Run setup once, as root:
 sudo parent-tracker setup
 ```
 
-It walks you through three things.
+It walks you through four things.
 
 ### 4.1 Choose monitored users (numbered picker)
 
@@ -199,15 +242,25 @@ ever recorded.
 You are prompted for a username (default `parent`) and a password (minimum 8
 characters). The password is stored only as a **bcrypt hash** in the config.
 
-### 4.3 Non-interactive setup
+### 4.3 Read and acknowledge the disclosure
 
-For scripted installs, pass everything as flags:
+Setup shows a plain-language notice saying what is recorded, who can see it, and
+that the child can see it too. You must acknowledge it before anything is
+recorded. Setup also puts a visible "activity is recorded" entry in the child's
+session (and shows a one-time notification if they are logged in), so tracking is
+never hidden.
+
+### 4.4 Non-interactive setup
+
+For scripted installs, pass everything as flags. The acknowledgement is explicit
+and never implied:
 
 ```bash
 sudo parent-tracker setup --non-interactive \
   --user ilyes \
   --dashboard-user parent \
   --dashboard-password 'a-strong-password' \
+  --acknowledge-disclosure \
   --alert-channel ntfy \
   --ntfy-url 'https://ntfy.sh/my-private-topic'
 ```
@@ -218,7 +271,9 @@ When done, start the service:
 sudo systemctl enable --now parent-trackerd
 ```
 
-Open <http://127.0.0.1:8787> and sign in.
+Open <http://127.0.0.1:8787> and sign in. If the child uses a Wayland session,
+ask them to log out and back in once (see
+[section 2](#wayland-and-x11-sessions)).
 
 ## 5. Day-to-day service management
 
@@ -251,8 +306,8 @@ produces an alert on the next start so a gap is never silent.
 
 Open <http://127.0.0.1:8787> and sign in with the credentials from setup.
 
-- 🆕 **Now (live)** — the current state, the app in front, and today's running
-  totals; updates by itself. See [Live view](#live-view-).
+- **Now (live)** — the current state, the app in front, and today's running
+  totals; updates by itself. See [Live view](#live-view).
 - **Active time / Idle / Locked** — the day's headline numbers, with a 7-day
   average for context.
 - **First / last activity** — when the day's use started and ended.
@@ -261,8 +316,8 @@ Open <http://127.0.0.1:8787> and sign in with the credentials from setup.
 - **Timeline** — a colour-coded strip of the day: blue = active, amber = idle,
   grey = locked/off. Gaps are visible.
 - **Trend** — daily active time over 7 or 30 days.
-- 🆕 **Hourly history** — usage by hour of the day. See
-  [Hourly history](#hourly-history-).
+- **Hourly history** — usage by hour of the day. See
+  [Hourly history](#hourly-history).
 - **Websites** — top domains over the last 7 days (only if web tracking is
   enabled; otherwise it explains that it is off).
 - **Alerts & tracking gaps** — rule hits and any time the service was not
@@ -271,7 +326,14 @@ Open <http://127.0.0.1:8787> and sign in with the credentials from setup.
 Use the **user selector** to switch between monitored accounts and the **date
 picker** to look at a specific day.
 
-### Live view 🆕
+**Appearance and accessibility.** The dashboard uses the Lumen design system. It
+follows your system's light or dark setting (you can override it), works with the
+keyboard (a visible focus ring marks where you are), respects the "reduce
+motion" setting, and adapts to a phone or tablet screen. It is fully
+self-contained: it loads no fonts, scripts or images from the internet, so it
+works with no internet connection.
+
+### Live view
 
 The **Now** card at the top of *Today* updates by itself — no refreshing:
 
@@ -288,12 +350,18 @@ seconds with the default 5 s sampling).
 
 The **indicator next to the card** tells you whether to trust the numbers:
 
+Each indicator is a coloured dot **with a word**, so it never depends on colour
+alone:
+
 | Indicator | Meaning |
 | --- | --- |
-| 🟢 **Live** | Updates are arriving. |
-| 🟡 **Reconnecting…** | The connection dropped; the page is retrying by itself. |
-| ⚪ **Stale — last update 14:32:05** | Nothing has arrived for a while (service stopped, network lost). Numbers are greyed out and are *not* current. |
+| **Live** (green dot) | Updates are arriving. |
+| **Reconnecting…** (orange dot) | The connection dropped; the page is retrying by itself. |
+| **Stale — last update 14:32:05** (red dot) | Nothing has arrived for a while (service stopped, network lost). Numbers are greyed out and are *not* current. |
 | **Live view off** | Switched off with `server.live = false`; the page updates only when reloaded. |
+
+These colours describe the health of the connection, never the child. The child's
+own states (Active, Idle, Locked, …) use neutral colours and are always labelled.
 
 If your browser or a proxy blocks streaming, the dashboard quietly falls back to
 asking for a fresh snapshot every few seconds (at least every 5 s); you will see
@@ -311,7 +379,7 @@ sudo parent-tracker config set server.live false            # turn the live view
 sudo parent-tracker config set server.live_max_clients 5    # at most 5 simultaneous live viewers (default 10)
 ```
 
-### Hourly history 🆕
+### Hourly history
 
 Open **Hourly history** to see *when* the PC was used. Times are in the PC's
 local timezone.
@@ -339,11 +407,13 @@ Good to know:
   minutes in the 10:00 hour and 20 in the 11:00 hour.
 - **Daylight-saving days** have 23 or 25 hourly bars; the repeated hour is shown
   twice.
-- **Per-app detail by hour** needs app tracking (not available on Wayland until
-  the GNOME helper exists) and is only available back to the raw-sample
-  retention (30 days by default) for data recorded before this feature was
-  installed. Per-hour *totals* go back further (up to 180 days from existing
-  records, then kept for `retention.hourly_usage`, default 1 year).
+- **Per-app detail by hour** needs app tracking (on a Wayland session that means
+  the GNOME Shell extension is loaded). If you upgraded from a release that had no
+  hourly history, hours recorded before the upgrade are rebuilt from existing
+  data: per-hour *totals* from the activity intervals (up to 180 days) but
+  per-app detail only as far back as the raw samples go (30 days by default).
+  From then on, hourly totals and per-app detail are kept for
+  `retention.hourly_usage` (default 1 year).
 - **Prefer a table?** Use **Show as table** for the same numbers in a
   screen-reader-friendly list.
 
@@ -377,18 +447,25 @@ Print the version.
 
 ### `parent-tracker setup`
 Initial configuration. Flags: `--user` (repeatable), `--dashboard-user`,
-`--dashboard-password`, `--alert-channel`, `--ntfy-url`, `--non-interactive`.
+`--dashboard-password`, `--alert-channel`, `--ntfy-url`,
+`--acknowledge-disclosure` (required with `--non-interactive`),
+`--non-interactive`.
 
 ### `parent-tracker status`
 Show config path, data dir, database path, sample interval, monitored users,
-schema version, table row counts, and collector health.
+schema version, table row counts, collector health, and — for each monitored
+session — its **session type** (`wayland` or `x11`) and whether its foreground
+provider is working.
 
 ### `parent-tracker doctor`
-Diagnose everything: config validity, database openability and permissions,
-session-provider availability (logind vs loginctl), `xprop` presence, dashboard
-configuration, and 🆕 **OS support** (Ubuntu 24.04 or newer; on 22.04 or older it
-reports "unsupported OS" and exits non-zero). Run this first when something
-looks wrong.
+Diagnose everything: **OS support** (Ubuntu 24.04 or newer; on 22.04 or older it
+reports "unsupported OS" and exits non-zero), config validity, database
+openability and permissions, whether `systemd-logind` is reachable, the session
+type of each monitored session, whether its foreground provider works (the X11
+provider on X11 sessions; on Wayland sessions whether the GNOME Shell extension
+is enabled and reporting, and whether the child still needs to log out and in),
+dashboard configuration. On a release that offers no X11 session it reports that
+as expected, not as a problem. Run this first when something looks wrong.
 
 ### `parent-tracker users …`
 - `users list` — list monitored users. A `!` marks a configured user that no
@@ -413,12 +490,12 @@ Print a usage report for a monitored user.
 parent-tracker report --user ilyes
 parent-tracker report --user ilyes --from 2026-10-01 --to 2026-10-07
 parent-tracker report --user ilyes --format csv > usage.csv
-parent-tracker report --user ilyes --by hour                    # 🆕 today, hour by hour
-parent-tracker report --user ilyes --by hour --date 2026-10-09  # 🆕 a specific day
+parent-tracker report --user ilyes --by hour                    # today, hour by hour
+parent-tracker report --user ilyes --by hour --date 2026-10-09  # a specific day
 parent-tracker report --user ilyes --by hour --from 2026-10-01 --to 2026-10-07 --format csv > hours.csv
 ```
 
-Flags: `--user`, `--from` (YYYY-MM-DD), `--to`, `--format text|csv`, and 🆕
+Flags: `--user`, `--from` (YYYY-MM-DD), `--to`, `--format text|csv`, and
 `--by day|hour` (default `day`) with `--date` (YYYY-MM-DD, with `--by hour`).
 
 With `--by hour` there is one line per hour that has data, in local time, showing
@@ -438,7 +515,7 @@ The CSV output has one row per user-hour with the same columns, and its totals
 match the dashboard.
 
 ### `parent-tracker export`
-Dump recorded data as JSON (users, sessions, intervals, app usage, 🆕 hourly
+Dump recorded data as JSON (users, sessions, intervals, app usage, hourly
 usage, alerts, audit), with a manifest containing the version and date range.
 
 ```bash
@@ -449,7 +526,7 @@ parent-tracker export                 # to stdout
 
 ### `parent-tracker delete`
 Permanently delete a user's data older than a date (real `DELETE`, not hidden).
-🆕 This includes the per-hour history.
+This includes the per-hour history.
 
 ```bash
 parent-tracker delete --user ilyes --before 2026-01-01        # asks for confirmation
@@ -494,7 +571,6 @@ You can edit the file directly (then `systemctl reload parent-trackerd`), or use
 | `db_name` | `tracker.db` | Database file name inside `data_dir`. |
 | `log_level` | `info` | `debug`, `info`, `warn`, `error`. |
 | `sample_interval` | `5s` | How often the machine is sampled (1s–1m). |
-| `idle_threshold` | `5m` | Retained for compatibility; idle is taken from logind. |
 | `web_import_interval` | `15m` | How often browser history is imported. |
 | `control_socket` | `/run/parent-tracker/control.sock` | Socket for the child self-view. |
 | `monitored_users` | `[]` | The allowlist. Only these accounts are recorded. |
@@ -508,8 +584,8 @@ You can edit the file directly (then `systemctl reload parent-trackerd`), or use
 | `window_title` | `false` | Store window titles (privacy-sensitive). |
 | `web` | `false` | Import browser history. |
 | `web_full_url` | `false` | Store full URLs + page titles instead of domain-only. Requires `web`. |
-| `screenshots` | `false` | Reserved; not implemented. |
-| `devices` | `false` | Reserved; not implemented. |
+| `screenshots` | `false` | Reserved for a later phase; no effect in the first release. |
+| `devices` | `false` | USB/Bluetooth device events (Phase 4); no effect before then. |
 
 ### `[retention]` — how long to keep data
 
@@ -518,7 +594,7 @@ You can edit the file directly (then `systemctl reload parent-trackerd`), or use
 | `window_samples` | `720h` (30d) | Raw app samples. |
 | `intervals` | `4320h` (180d) | Activity intervals. |
 | `app_usage` | `17520h` (730d) | Per-app daily aggregates. |
-| 🆕 `hourly_usage` | `8760h` (365d) | Per-hour history (state time and per-app time by hour). |
+| `hourly_usage` | `8760h` (365d) | Per-hour history (state time and per-app time by hour). |
 | `web_visits` | `2160h` (90d) | Browser visits. |
 | `alerts` | `8760h` (365d) | Alerts. |
 | `sessions` | `8760h` (365d) | Login sessions. |
@@ -533,8 +609,8 @@ You can edit the file directly (then `systemctl reload parent-trackerd`), or use
 | `username` | `parent` | Dashboard login. |
 | `password_hash` | — | bcrypt hash (set by `setup`). |
 | `allow_lan` | `false` | Must be `true` to bind beyond loopback. |
-| 🆕 `live` | `true` | Real-time dashboard updates. `false` turns the live view off (reload to apply). |
-| 🆕 `live_max_clients` | `10` | Maximum simultaneous live viewers; extra viewers fall back to polling. |
+| `live` | `true` | Real-time dashboard updates. `false` turns the live view off (reload to apply). |
+| `live_max_clients` | `10` | Maximum simultaneous live viewers; extra viewers fall back to polling. |
 
 ### `[alerts]`
 
@@ -555,15 +631,15 @@ school, social, video and browser. See
 
 ### Setting values from the CLI
 
-Settable keys: `log_level`, `sample_interval`, `idle_threshold`,
+Settable keys: `log_level`, `sample_interval`,
 `web_import_interval`, `control_socket`, `server.enabled`, `server.listen`,
-`server.allow_lan`, 🆕 `server.live`, 🆕 `server.live_max_clients`,
+`server.allow_lan`, `server.live`, `server.live_max_clients`,
 `collectors.session`, `collectors.app`,
 `collectors.window_title`, `collectors.web`, `collectors.web_full_url`,
 `collectors.screenshots`, `alerts.enabled`, `alerts.channel`, `alerts.ntfy_url`,
 `alerts.webhook_url`, `alerts.daily_active_limit`, `alerts.bedtime`,
 `retention.window_samples`, `retention.intervals`, `retention.app_usage`,
-🆕 `retention.hourly_usage`, `retention.prune_interval`.
+`retention.hourly_usage`, `retention.prune_interval`.
 
 ```bash
 sudo parent-tracker config set sample_interval 10s
@@ -576,11 +652,13 @@ can be edited in the file.
 
 ## 9. Alerts
 
-Alerts currently cover:
+Alerts in the first release cover:
 
 - **Daily active-time limit** — fires once per user per day.
 - **Usage after bedtime** — fires once per user per day.
 - **Tracking interrupted** — a gap or unclean stop.
+- **App sensor lost** — the agent was stopped or the GNOME Shell extension was
+  disabled or missing, so app tracking stopped (screen time is unaffected).
 
 Enable the channel you want:
 
@@ -681,9 +759,9 @@ usage hour by hour. It never sees your screen, keystrokes or messages.
 This is everything Parent Tracker records about you. It stays on this computer.
 ```
 
-The *By hour* section is 🆕 and shows the same per-hour history your parent
-sees for your account; the closing note about the live view is 🆕 too. A child
-should always be able to see everything the parent can.
+The *By hour* section shows the same per-hour history your parent sees for your
+account, and the closing note tells you that your parent can see your current
+state live. A child should always be able to see everything the parent can.
 
 **How it works without giving the child access to everyone's data:** the daemon
 serves a local Unix socket (`control_socket`). The caller is identified by the
@@ -713,7 +791,7 @@ CSV (good for a spreadsheet):
 parent-tracker report --user ilyes --format csv > ilyes-october.csv
 ```
 
-🆕 Hour by hour (a single day, or a range as CSV with one row per hour):
+Hour by hour (a single day, or a range as CSV with one row per hour):
 
 ```bash
 parent-tracker report --user ilyes --by hour --date 2026-10-09
@@ -731,7 +809,7 @@ parent-tracker export --out tracker-backup.json
 **Retention** keeps the database bounded. Raw samples expire after
 `retention.window_samples` (default 30 days) and are removed, but the per-app
 daily aggregates are kept much longer (default 2 years), so old trends remain
-visible. 🆕 The per-hour history sits in between: it is kept for
+visible. The per-hour history sits in between: it is kept for
 `retention.hourly_usage` (default 1 year), so you can still see *when* the PC was
 used long after the raw samples are gone. The pruner runs every
 `retention.prune_interval` (default 6h).
@@ -780,14 +858,16 @@ Parent Tracker is designed to be lightweight:
 - steady-state CPU well under 1% of a core and memory well under 100 MB,
 - disk growth is bounded by retention. User-facing dashboard queries read
   pre-aggregated daily tables.
-- 🆕 the live view is served from memory and does not read the database on every
+- the live view is served from memory and does not read the database on every
   update; a dashboard left open costs a negligible amount of CPU and a few KB/s.
   Slow or stuck browser tabs are dropped rather than waited for, and the number
   of simultaneous live viewers is capped (`server.live_max_clients`).
 
-Approximate raw storage at default settings is a few megabytes per user per
-month, pruned to 30 days. 🆕 Per-hour history adds well under 5 MB per user per
-year.
+Raw samples are the largest item: a full day of 5-second samples is roughly
+1–4 MB per user (less when the PC is used for a few hours), so with the default
+30-day retention expect on the order of 60–120 MB per user at most. This is an
+estimate that will be confirmed by measurement. Per-hour history adds well under
+5 MB per user per year.
 
 ## 16. Troubleshooting
 
@@ -802,9 +882,13 @@ journalctl -u parent-trackerd -n 100 --no-pager
 | --- | --- |
 | Dashboard says "login is not configured" | Run `sudo parent-tracker setup` (or the service before setup). |
 | Dashboard unreachable from another device | Loopback-only by default; set `server.listen` and `server.allow_lan true`, then restart. |
-| No application data | Wayland session (degraded — expected), or no `xprop` installed, or the session is a TTY. Check `parent-tracker doctor`. |
+| No application data on a **Wayland** session | The GNOME Shell extension is not loaded yet (the child has not logged out and in since installation), or it was disabled. Ask them to log out and in, then run `parent-tracker doctor`. |
+| No application data on an **X11** session | The agent cannot reach the X server, the window manager does not provide the standard active-window information, or (if the package uses it) `xprop` is missing. Check `parent-tracker doctor`. |
+| No application data, session type `tty` | A text console has no windows; only session time is recorded. |
+| "App sensor lost" | The agent was stopped or the extension disabled in the child's session. See [section 2](#wayland-and-x11-sessions). Screen time is still recorded. |
+| `doctor` says the X11 session is not available | Expected on Ubuntu 25.10 and later (Wayland-only GNOME). Not a problem. |
 | No web data | `collectors.web` is off (default), or the browser hasn't been used. |
-| `status` shows collectors `DEGRADED` | Informational on Wayland; see above. |
+| `status` shows a foreground collector `DEGRADED` | Wayland session without the extension, or X11 unreachable; see the rows above. |
 | Service won't start | `/etc/parent-tracker/config.toml` must exist (the unit has `ConditionPathExists`). Run `setup`. |
 | "database … too open" in doctor | Fix with `sudo chmod 0640 /var/lib/parent-tracker/tracker.db`. |
 | Times look shifted | Day boundaries use the service's local timezone. Set the system timezone correctly. |
@@ -812,14 +896,14 @@ journalctl -u parent-trackerd -n 100 --no-pager
 | A monitored user vanished from the list | Their account was removed; `users list` marks stale entries with `!`. |
 | `apt` says "unmet dependencies" (e.g. `systemd (>= 255)`) when installing | The PC is on Ubuntu 22.04 or older, which is not supported. Upgrade to 24.04 or newer (`sudo do-release-upgrade`), then install again. |
 | `doctor` says "unsupported OS" | Same cause as above. Parent Tracker supports Ubuntu 24.04 and newer only. |
-| 🆕 The Now card says **Stale** or **Reconnecting…** | The dashboard is not receiving updates: check `systemctl status parent-trackerd`, your network, and that `server.live` is not `false`. The page reconnects by itself when the service is back. |
-| 🆕 Live view says "polling", or updates arrive in bursts | Something between you and the service (reverse proxy, VPN, browser extension) is buffering the event stream. Turn off buffering/compression for `/api/live/stream`, or accept the slower polling. |
-| 🆕 "Too many live viewers" | More tabs/devices are open than `server.live_max_clients` allows. Close some, or raise the limit and reload the service. |
-| 🆕 Live view says **App unavailable** | Wayland session without app tracking (expected, see [section 2](#2-requirements-and-capabilities)); state and totals are still live. |
-| 🆕 An hour looks hatched | A tracking gap: the service was not recording then (stopped, crashed, power loss). It is *unknown*, not zero use. See *Alerts & tracking gaps*. |
-| 🆕 An hour is blank with "no data yet" | Before the first recorded activity for that user, or the child was not signed in / the PC was off. |
-| 🆕 No per-app breakdown for an hour | App tracking was unavailable then (Wayland), or the hour is older than the raw-sample retention and was recorded before hourly history existed. Totals are still shown. |
-| 🆕 Hourly bars look an hour off | Hours follow the PC's local timezone and daylight-saving rules. Check the system timezone with `timedatectl`. |
+| The Now card says **Stale** or **Reconnecting…** | The dashboard is not receiving updates: check `systemctl status parent-trackerd`, your network, and that `server.live` is not `false`. The page reconnects by itself when the service is back. |
+| Live view says "polling", or updates arrive in bursts | Something between you and the service (reverse proxy, VPN, browser extension) is buffering the event stream. Turn off buffering/compression for `/api/live/stream`, or accept the slower polling. |
+| "Too many live viewers" | More tabs/devices are open than `server.live_max_clients` allows. Close some, or raise the limit and reload the service. |
+| Live view says **App unavailable** | Wayland session without app tracking (expected, see [section 2](#2-requirements-and-capabilities)); state and totals are still live. |
+| An hour looks hatched | A tracking gap: the service was not recording then (stopped, crashed, power loss). It is *unknown*, not zero use. See *Alerts & tracking gaps*. |
+| An hour is blank with "no data yet" | Before the first recorded activity for that user, or the child was not signed in / the PC was off. |
+| No per-app breakdown for an hour | App tracking was unavailable then (Wayland), or the hour is older than the raw-sample retention and was recorded before hourly history existed. Totals are still shown. |
+| Hourly bars look an hour off | Hours follow the PC's local timezone and daylight-saving rules. Check the system timezone with `timedatectl`. |
 
 **Reset the dashboard password:**
 
@@ -837,7 +921,10 @@ sudo systemctl reload parent-trackerd
 | `/etc/parent-tracker/config.toml` | Configuration (`0640`). |
 | `/var/lib/parent-tracker/tracker.db` | SQLite database (`0600`), plus `-wal`/`-shm`. |
 | `/run/parent-tracker/control.sock` | Child self-view socket. |
-| `/usr/lib/systemd/system/parent-trackerd.service` | systemd unit. |
+| `/usr/lib/systemd/system/parent-trackerd.service` | systemd unit (daemon). |
+| `/usr/lib/systemd/user/parent-tracker-agent.service` | systemd user unit for the per-session agent. |
+| `/usr/share/gnome-shell/extensions/<uuid>/` | The GNOME Shell extension (Wayland sessions). |
+| `/etc/dconf/db/…` | System-wide default that enables the extension for monitored users. |
 | `/usr/lib/tmpfiles.d/parent-tracker.conf` | Runtime directory definitions. |
 | `/usr/share/doc/parent-tracker/` | Example config and docs. |
 | `journalctl -u parent-trackerd` | Logs. |
@@ -853,7 +940,7 @@ sudo systemctl reload parent-trackerd
   outbound network traffic is to an alert channel you explicitly configure.
 - Sensitive collection (window titles, browser history, full URLs) is off by
   default. Keep retention as short as is useful.
-- 🆕 The live view and the hourly history show **only what is already recorded**
+- The live view and the hourly history show **only what is already recorded**
   (state, foreground app, totals by hour). They never show the screen, keystrokes
   or message content, and the child can see the same data — including that you
   can watch live — with `parent-tracker self`. Hour-by-hour patterns are more
@@ -913,28 +1000,54 @@ package will not install (`apt` reports unmet dependencies). Upgrade Ubuntu to
 touched by the OS upgrade.
 
 **Does it work on the newest Ubuntu releases?**
-Yes, 24.04 and later are supported. Note that Ubuntu 25.10 and later offer only a
-Wayland GNOME session, where per-app tracking is currently degraded (screen time
-and the live state still work); see [section 2](#2-requirements-and-capabilities).
+Yes, 24.04 and later are supported. Ubuntu 25.10 and later offer only a Wayland
+GNOME session; app tracking there uses the GNOME Shell extension, so the child
+needs to log out and in once after installation. See
+[section 2](#wayland-and-x11-sessions).
 
-🆕 **Does the dashboard update by itself?**
+**Do I need Wayland or X11?**
+Either. Both are supported, and one PC can be used in either from one login to
+the next, or by different children at the same time. Screen time is identical;
+only the way the app in front is found differs.
+
+**Can my child avoid tracking by switching between Wayland and X11?**
+No. Session time is recorded either way, and each session's app tracking is
+checked separately. Switching just moves between the two providers.
+
+**Can my child turn off the GNOME extension?**
+The extension is enabled system-wide and set up so a standard user cannot simply
+remove it. Someone determined can still interfere with app data in their own
+session, so Parent Tracker records it ("App sensor lost"), shows it on the
+dashboard and alerts you. Screen time from `systemd-logind` is unaffected.
+
+**Why does the child have to log out and in after installation?**
+GNOME Shell loads extensions only when a session starts, and on Wayland it
+cannot be restarted inside a session.
+
+**How accurate is "active" time?**
+Idle comes from the desktop session's idle setting (on Ubuntu the screen blank /
+idle delay is 5 minutes by default). Parent Tracker back-dates idle to when it
+actually began, so a few minutes of inactivity before it is detected are not
+counted as use. Accuracy targets are in [docs/08](08-testing-acceptance.md).
+
+**Does the dashboard update by itself?**
 Yes. The *Now* card and today's totals refresh automatically; the Live /
 Reconnecting / Stale indicator tells you if they are current. You never need to
 reload the page.
 
-🆕 **Can I watch my child's screen live?**
+**Can I watch my child's screen live?**
 No, and by design. The live view shows the state (active/idle/locked), the app in
 front and running totals, nothing else.
 
-🆕 **Will the child know I can see live activity?**
+**Will the child know I can see live activity?**
 Yes. `parent-tracker self` tells them, and shows them the same hourly history
 you see.
 
-🆕 **Can I turn the live view off?**
+**Can I turn the live view off?**
 Yes: `sudo parent-tracker config set server.live false`, then reload the
 service. The dashboard keeps working and updates when you reload the page.
 
-🆕 **How far back does the hourly history go?**
+**How far back does the hourly history go?**
 Per-hour totals are kept for `retention.hourly_usage` (default 1 year). Per-app
 detail for each hour is available for hours recorded after hourly history was
 introduced and, for older data, as far back as the raw samples go (30 days by

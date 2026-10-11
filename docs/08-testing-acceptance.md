@@ -13,6 +13,8 @@
 | Live | Scripted state transitions replayed into the live hub; a headless browser (e.g. Playwright) asserts the open dashboard updates with no reload, goes Stale on disconnect, and falls back to polling. |
 | Hourly | Interval-splitting and DST/timezone unit tests; daily≡hourly reconciliation over fixture data; migration/backfill on a seeded DB. |
 | Compatibility | GNOME primary; KDE/XFCE smoke tests (flavours on 24.04+). |
+| Session types | The same scripted scenarios on a **Wayland** and an **X11** GNOME session (24.04), and on the newest release (Wayland only); extension install/enable/disable tests (group K). |
+| UI conformance | Lumen conformance: no hard-coded design values, light/dark contrast, zero external requests, local fonts, keyboard/focus/reduced motion, copy rules, phone width (group L). |
 
 ## 8.2 Key acceptance criteria
 
@@ -31,7 +33,8 @@
   reports approximately those values (±10%).
 - **AC-11** An app left open but idle all day reports low foreground time.
 - **AC-12** On Wayland without the shell extension, the dashboard shows a
-  degraded-app-tracking banner and no crash.
+  degraded-app-tracking banner (naming the session type and the next step), no
+  app rows are written, screen time is still recorded, and nothing crashes.
 - **AC-13** Window titles are absent from storage and logs when title capture
   is disabled.
 
@@ -81,7 +84,7 @@
 - **AC-80** Locking the screen of a test session shows **Locked** on an
   already-open dashboard within one sampling interval + 2 s, with no reload.
 - **AC-81** Switching the foreground app updates the Live card within one
-  sampling interval + 2 s (X11, or Wayland with the helper). Where app tracking
+  sampling interval + 2 s (X11, or Wayland with the extension). Where app tracking
   is degraded the card shows "App unavailable" and no error.
 - **AC-82** The live Active counter stops while locked/idle and resumes on
   unlock; after the next rollup it differs from the stored daily figure by at
@@ -129,6 +132,56 @@
 - **AC-98** `delete --user X --before D` removes hourly rows before `D`; the
   export bundle contains them; the child's self-view lists them (FR-10.5).
 
+### K. Session types (Wayland and X11)
+- **AC-100** On a GNOME **Wayland** session with the extension enabled, two apps
+  used 10 and 20 minutes report ≈ those values (±10%, as AC-10); titles are
+  stored only when title capture is on.
+- **AC-101** On a GNOME **X11** session (24.04, "Ubuntu on Xorg"), the same
+  scenario passes with the same tolerance.
+- **AC-102** `sessions.session_type` is correct (`wayland`, `x11`, `tty`) for
+  each test session; greeter and SSH sessions produce no rows and no usage.
+- **AC-103** Replaying the same scripted lock / idle / suspend sequence on a
+  Wayland and on an X11 session yields identical active / idle / locked totals
+  (NFR-3.9, FR-3.10).
+- **AC-104** On a Wayland session with the extension **disabled**, running one
+  native Wayland app and one XWayland app yields **no** foreground-app rows —
+  the X11 provider is not used (FR-3.9).
+- **AC-105** Disabling the extension (or killing the agent) mid-session produces,
+  within 3 × the sampling interval, an `app_sensor_lost` audit entry, the
+  dashboard banner and the alert; re-enabling restores app data and logs
+  `app_sensor_restored` (SEC-35). Screen time is unaffected throughout.
+- **AC-106** Two monitored users in simultaneous sessions of different types
+  (one Wayland, one X11) are each attributed correctly (extends AC-21).
+- **AC-107** On the newest supported release (no X11 GNOME session) `doctor`
+  reports the missing X11 session as expected and passes; the Wayland suite is
+  green.
+- **AC-108** After installing the package on a Wayland system, the monitored
+  user's next login loads the extension with no manual step other than that
+  log-out/log-in, and a standard user cannot remove it from their own settings
+  (validates the dconf default/lock, 04 §4.13.5).
+
+### L. Lumen design-system conformance
+- **AC-110** A CI check finds no hard-coded colour, font size, radius, spacing or
+  control-height literals in the dashboard's own CSS/JS (only token references);
+  palette steps appear only inside chart/illustration code (DS-2).
+- **AC-111** Every screen renders in `light` and `dark`; an automated contrast
+  check passes (text ≥ 4.5:1, meaningful graphics and controls ≥ 3:1, except the
+  documented Lumen field-border limitation, 12 §12.8) (DS-4, DS-13).
+- **AC-112** With all non-loopback network access blocked, every screen loads and
+  works; the browser's network log shows **only same-origin requests** — no CDN,
+  web-font, icon or analytics host (DS-9, NFR-5.2).
+- **AC-113** Fonts are served from the package (Source Sans 3, Source Code Pro);
+  the Lumen fallback stack is used if a font file is missing.
+- **AC-114** Every interactive element is reachable and operable by keyboard with
+  a visible focus ring; with `prefers-reduced-motion` set, no animation runs,
+  including live counters and chart transitions (DS-7).
+- **AC-115** UI strings pass the copy rules: sentence case, verb buttons, no
+  emoji, no exclamation marks, every status shown as a word (DS-5, DS-6).
+- **AC-116** The package's `copyright` file lists Lumen/Spectrum-derived values,
+  Lucide, React and the fonts with their licences (DS-11, NFR-6.11).
+- **AC-117** All screens are usable at 360 px width (no horizontal page scroll,
+  controls reachable) (DS-12, NFR-8.8).
+
 ## 8.3 Test fixtures & harness
 
 - A "fake session" harness that replays scripted logind/lock/idle transitions
@@ -145,6 +198,11 @@
   arrive without reload.
 - A disposable **Ubuntu 22.04** container/VM used only for the negative
   packaging test AC-63/AC-64.
+- A fake **foreground provider** that replays scripted app-focus events, so
+  aggregation tests do not depend on a real desktop; plus real-desktop E2E runs
+  for both the GNOME Wayland extension and the X11 provider.
+- A browser-driven UI check (axe-style accessibility + contrast + network-log
+  assertions, light/dark, 360 px and desktop widths) for group L.
 
 ## 8.4 Quality gates
 
@@ -152,6 +210,7 @@
   release. 22.04 is **not** part of the CI matrix (apart from the negative
   install test).
 - Linting/formatting enforced.
+- UI conformance checks (group L: AC-110…AC-117) pass for every dashboard change.
 - No new P1/P2 security finding open.
 - Resource budget check (NFR-1.1/1.2) passes in the performance test.
 
@@ -160,7 +219,9 @@
 | Dimension | Values |
 | --- | --- |
 | Ubuntu | 24.04 LTS, newest supported release (22.04 and older: unsupported, install must be refused) |
-| Session | Wayland, X11 (where the release offers it) |
+| Session | Wayland (all releases), X11 (24.04 and any release/flavour that offers it) — both are required, see NFR-3.3 |
 | DE | GNOME (primary), KDE (smoke) |
 | Arch | x86_64, arm64 |
-| Scenario | single user, fast-switch, suspend/resume, hard reboot, disk-full, DST day, live reconnect after daemon restart |
+| Browser (dashboard) | Firefox and a Chromium-family browser on the PC; a phone browser over the LAN |
+| Theme | light, dark |
+| Scenario | single user, fast-switch (including mixed Wayland/X11), suspend/resume, hard reboot, disk-full, DST day, live reconnect after daemon restart, extension disabled mid-session |

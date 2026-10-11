@@ -54,7 +54,11 @@ transparent to the child and controllable by the parent.
 - **Ubuntu 24.04 LTS and newer only** (see
   [03 – Non-Functional Requirements](03-non-functional-requirements.md#33-compatibility)).
 - A **monitored-users allowlist**; accounts not on it are never tracked.
-- Session, activity, application, and (phase 2) web/screenshot collection.
+- Session, activity and application collection on **Wayland and X11** desktop
+  sessions (MVP, Phases 1–2); web history and device events (Phase 4, opt-in);
+  screenshots (Phase 7, opt-in, optional).
+- A browser dashboard built with the **Lumen design system**
+  ([12 – Design System: Lumen](12-design-system-lumen.md)).
 - Local storage, local reporting, optional alerting.
 - Packaging, install, upgrade, uninstall.
 - Optional parental enforcement (time limits, blocks) — later phase.
@@ -73,7 +77,11 @@ transparent to the child and controllable by the parent.
 | --- | --- |
 | **Service** | The `parent-trackerd` systemd system service (daemon). |
 | **Collector** | A sub-component that gathers one kind of signal (session, window, …). |
-| **Agent / per-user helper** | An optional per-session process that can see GUI data the system daemon cannot. |
+| **Agent / per-user helper** | A small per-session process (systemd user unit) that runs as the monitored user and collects GUI-level data (foreground app) the system daemon cannot or should not collect itself. |
+| **Session type** | How a graphical login session is displayed: `wayland`, `x11`, or `tty` (no GUI). Reported by systemd-logind. |
+| **Foreground provider** | The component that learns which app has focus in one session: the X11 provider (EWMH) or the GNOME Wayland provider (Shell extension). |
+| **GNOME Shell extension** | A small extension shipped with the package that reports the focused window inside a GNOME **Wayland** session. |
+| **Lumen** | The design system the dashboard UI must be built with ([12](12-design-system-lumen.md)). |
 | **Monitored user** | A local account explicitly listed for tracking. |
 | **Event** | A timestamped, immutable record of something that happened (login, app focus, idle start). |
 | **Sample** | A periodic measurement (e.g., active window every 5 s) used to derive durations. |
