@@ -7,6 +7,9 @@
 - Factual, non-shaming language, especially in the child's self-view.
 - "What is happening right now?" is answered at a glance and **updates by
   itself**; "when during the day?" is answered by the hourly view.
+- The UI is built entirely with the **Lumen design system** (7.9,
+  [12](12-design-system-lumen.md)): consistent, accessible, light and dark, and
+  fully self-contained.
 
 ## 7.2 Dashboard screens
 
@@ -17,9 +20,9 @@
   - current foreground app (name, plus title only if title capture is on);
     "App unavailable (Wayland)" when app tracking is degraded;
   - today's running **Active / Idle / Locked** totals, ticking up while active;
-  - a **Live** indicator (green dot + "Live"), turning to **Reconnecting…** and
-    then **Stale — last update 14:32:05** if updates stop (FR-6.11). Stale
-    numbers are greyed out and never labelled as current.
+  - a **Live** indicator (a `StatusLight` with the word "Live"), turning to
+    **Reconnecting…** and then **Stale — last update 14:32:05** if updates stop
+    (FR-6.11). Stale numbers are greyed out and never labelled as current.
 - Big numbers: **Active time**, **Idle time**, **First activity**, **Last activity**.
 - Top 5 apps as a horizontal bar chart with durations.
 - Category donut (games / school / social / video / other) if categories configured.
@@ -49,6 +52,9 @@
   dashboard auth, LAN exposure toggle (with warning).
 
 ### 7.2.7 Child self-view
+- Delivered by the CLI (`parent-tracker self`, no root, peer-credential-checked
+  local socket). A browser version would need its own per-user authentication
+  and is not part of the first release.
 - Read-only, same numbers as parent sees for their own account — including the
   hour-by-hour breakdown — with an explainer of what is collected, a plain
   statement that the parent can see current activity live (SEC-6), and how to
@@ -92,6 +98,7 @@ Answers "when was the PC used, and what was happening at 21:00?".
 | Specific app opened | off | configurable |
 | New USB/Bluetooth device | off | — |
 | Tracking gap / service stopped | **on** | any |
+| Foreground-app sensor lost (agent stopped, GNOME extension disabled or missing) | **on** | any (SEC-35) |
 | Disk space low | **on** | < 10% |
 
 Channels: local desktop notification, email (SMTP), ntfy/webhook. Rate-limited
@@ -100,18 +107,21 @@ and de-duplicated (one alert per rule per window).
 ## 7.5 CLI UX
 
 ```
-parent-tracker status                 # current sessions, last sample, counts
-parent-tracker users add alice        # start monitoring 'alice'
-parent-tracker users remove alice     # stop monitoring
-parent-tracker config get/set KEY VAL # edit settings
+parent-tracker version
+parent-tracker setup                  # users, dashboard login, disclosure acknowledgement
+parent-tracker status                 # current sessions (with session type), last sample, counts
+parent-tracker users list|add|remove  # manage the monitored-users allowlist
+parent-tracker config list|get|set KEY VAL # edit settings
 parent-tracker report --from ... --to ... --format csv
 parent-tracker report --user alice --by hour [--date 2026-10-09]   # per-hour table
 parent-tracker report --user alice --by hour --from ... --to ... --format csv
-parent-tracker export --out backup.zip
+parent-tracker export --out backup.json
 parent-tracker delete --user alice --before 2026-01-01
-parent-tracker doctor                 # diagnose capability/permissions/OS support
+parent-tracker doctor                 # diagnose OS support, session type, extension, permissions
 parent-tracker self [--json]          # child's view, incl. today by hour
-parent-tracker secret set smtp-password
+parent-tracker serve                  # dashboard only, no collectors (debugging)
+parent-tracker completion bash|zsh|fish
+parent-tracker secret set smtp-password   # only if an email channel is added later
 ```
 
 `report --by hour` prints one line per hour that has any data (local time), with
@@ -124,10 +134,14 @@ day total — the same numbers as the Hourly history screen. `doctor` includes a
 1. Install package.
 2. `parent-tracker setup` asks: which users to monitor? enable web/screenshots?
    alert channel? sets dashboard password.
-3. Show disclosure text and require acknowledgement.
+3. Show disclosure text and require acknowledgement (scripted installs pass an
+   explicit acknowledgement flag; never silent).
 4. Place a visible "activity is recorded" entry in the child's session and (if
    the child is logged in) show a one-time notification.
-5. Open dashboard at `http://127.0.0.1:8787`.
+5. If a monitored user uses a **Wayland** session, tell the parent that the
+   child must **log out and in once** so GNOME Shell loads the extension
+   (`doctor` verifies it; until then the dashboard shows "App tracking limited").
+6. Open dashboard at `http://127.0.0.1:8787`.
 
 ## 7.7 Accessibility & i18n
 
@@ -136,8 +150,11 @@ day total — the same numbers as the Hourly history screen. `doctor` includes a
 
 ## 7.8 Error & degraded-state UX
 
-- Dashboard banner when a collector is degraded ("App tracking limited on
-  Wayland — install the GNOME extension").
+- Dashboard banner (an `InlineAlert`) when a collector is degraded, naming the
+  session type and the next step, e.g. "App tracking limited in a Wayland
+  session. The GNOME Shell extension is not enabled — ask {user} to log out and
+  back in, then run `parent-tracker doctor`."
+- On a release that has no X11 session, X11 is never mentioned as a problem.
 - Timeline shows explicit **gaps** rather than drawing straight through them.
 - Live view states are always explicit: **Live**, **Reconnecting…**, **Stale**,
   **Live view off** (`server.live = false`), and "polling" (shown subtly when
@@ -145,4 +162,21 @@ day total — the same numbers as the Hourly history screen. `doctor` includes a
 - Hourly views never turn missing data into zero: tracking gaps are hatched,
   "no data yet" hours (before the first record) are blank with a tooltip.
 - `doctor` prints a checklist with fixes, including an unsupported-OS line
-  ("Ubuntu 22.04 is not supported — upgrade to 24.04 or newer").
+  ("Ubuntu 22.04 is not supported — upgrade to 24.04 or newer") and, per
+  monitored session, its type and whether its foreground provider is working.
+
+## 7.9 UI implementation: Lumen
+
+The dashboard is built with the Lumen design system; the rules, the
+screen-to-component map, the status mapping and the list of pieces Lumen does
+not provide (charts, heatmap, date picker, sign-in screen) are in
+[12 – Design System: Lumen](12-design-system-lumen.md). In short:
+
+- Components from `window.Lumen` (React 18) and tokens from `tokens.css` only;
+  light and dark themes; no other icon set; assets vendored, nothing fetched.
+- Copy is sentence case with verb buttons, no emoji or exclamation marks; status
+  is always a word plus a dot or icon.
+- Session states use non-judgemental `StatusLight` variants; "positive" and
+  "negative" are reserved for the health of the tracker itself.
+- Top-level navigation is `Tabs` (at most six); settings open in a `Drawer`;
+  alerts and gaps are a `Timeline`; banners are `InlineAlert`.

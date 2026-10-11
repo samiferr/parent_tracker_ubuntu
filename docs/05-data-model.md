@@ -19,11 +19,13 @@ local time.
 | --- | --- | --- |
 | id | INTEGER PK | |
 | uid | INTEGER FK users | |
+| logind_session_id | TEXT | logind's session id (e.g. `2`), for correlation |
 | started_at | TIMESTAMP | login/unlock |
 | ended_at | TIMESTAMP nullable | logout/lock |
 | state | TEXT | active / idle / locked / screen_off / suspended / logged_out |
 | host_type | TEXT | local / remote(ssh) |
-| wayland_or_x11 | TEXT | |
+| session_type | TEXT | `wayland` / `x11` / `tty` / `unknown`, from logind `Type` (see [04 §4.13](04-architecture.md#413-session-types-wayland-and-x11)) |
+| desktop | TEXT nullable | e.g. `GNOME`, from logind `Desktop` |
 | end_reason | TEXT | normal / unclean / clock_skew |
 
 ### `activity_intervals`
@@ -33,7 +35,7 @@ screen time). Reduces raw sample volume.
 | --- | --- | --- |
 | id | INTEGER PK | |
 | uid | INTEGER | |
-| state | TEXT | active/idle/locked/screen_off |
+| state | TEXT | active / idle / locked / screen_off / suspended (screen_off is recorded only where a source exists, else folded into idle/locked) |
 | started_at | TIMESTAMP | |
 | ended_at | TIMESTAMP | |
 | duration_ms | INTEGER | computed |
@@ -68,7 +70,8 @@ history; written by the rollup (see [04 – Architecture](04-architecture.md#412
 | PK | (uid, hour_start) | Index `(uid, day)` |
 
 `hour_len_ms − active_ms − idle_ms − locked_ms − gap_ms` is the time the user
-was **not in a session / PC off**; it is derived at read time and not stored.
+was **not signed in, the PC was suspended, or it was powered off**; it is derived
+at read time and not stored.
 The hour currently in progress is not stored; it is computed on demand.
 
 ### `hourly_app_usage` (aggregate, per local hour per app)
@@ -83,8 +86,9 @@ The hour currently in progress is not stored; it is computed on demand.
 | PK | (uid, hour_start, app_id) | Index `(uid, hour_start)` |
 
 Empty (no rows) for hours where app tracking was unavailable, e.g. Wayland
-without the GNOME helper, or hours older than `window_samples` retention at the
-time the table was first backfilled.
+without the GNOME Shell extension, or hours older than `window_samples`
+retention at the time the table was first backfilled (only relevant when
+upgrading from a release that had no hourly history).
 
 ### `window_samples` (raw, retention-limited)
 | Column | Type | Notes |
@@ -96,10 +100,15 @@ time the table was first backfilled.
 | window_title | TEXT nullable | optional, can be disabled |
 | pid | INTEGER | |
 | state | TEXT | active/idle/locked |
+| source | TEXT | `x11` / `gnome-wayland` — which foreground provider produced the sample |
+
+Samples exist only when a foreground provider is working; with none (e.g.
+Wayland without the extension) no `window_samples` rows are written and the
+state time still comes from `activity_intervals`.
 
 Index: `(uid, ts)`, `(uid, app_id, ts)`.
 
-### `web_visits` (phase 2, opt-in)
+### `web_visits` (Phase 4, opt-in)
 | Column | Type | Notes |
 | --- | --- | --- |
 | id | INTEGER PK | |
@@ -110,7 +119,7 @@ Index: `(uid, ts)`, `(uid, app_id, ts)`.
 | url | TEXT nullable | only if full-URL capture enabled |
 | title | TEXT nullable | |
 
-### `device_events` (phase 2)
+### `device_events` (Phase 4, opt-in)
 | Column | Type | Notes |
 | --- | --- | --- |
 | id | INTEGER PK | |
@@ -129,7 +138,7 @@ Index: `(uid, ts)`, `(uid, app_id, ts)`.
 | severity | TEXT | info / warn / critical |
 | message | TEXT | |
 | delivered | INTEGER (bool) | |
-| delivered_via | TEXT | ntfy / email / desktop |
+| delivered_via | TEXT | ntfy / webhook / desktop / email (email only if that channel is added) |
 
 ### `audit_log`
 Tamper-evidence and admin actions.
@@ -138,7 +147,7 @@ Tamper-evidence and admin actions.
 | id | INTEGER PK | |
 | ts | TIMESTAMP | |
 | actor | TEXT | system / admin-uid |
-| action | TEXT | service_stopped, config_changed, collector_disabled, data_deleted, … |
+| action | TEXT | service_stopped, config_changed, collector_disabled, data_deleted, app_sensor_lost / app_sensor_restored (Wayland extension or agent), … |
 | detail | TEXT (JSON) | |
 
 ### `schema_migrations`
@@ -146,6 +155,11 @@ Tamper-evidence and admin actions.
 
 ### `collector_health`
 | collector | TEXT PK | last_ok_at | last_error | enabled |
+
+One row per collector **and per foreground provider per session**, e.g. `session`,
+`web`, `foreground:x11:<session>`, `foreground:gnome-wayland:<session>`; the
+Wayland provider's detail (`active` / `missing` / `disabled` / `no-heartbeat`)
+goes in `last_error`.
 
 ## 5.2 Retention policy
 
@@ -156,8 +170,9 @@ Tamper-evidence and admin actions.
 | `app_usage` aggregates | 2 years | deleted |
 | `hourly_usage` / `hourly_app_usage` | 1 year (`retention.hourly_usage`) | deleted |
 | `web_visits` | 90 days | deleted |
-| Screenshots (phase 3) | 7 days | deleted |
-| `alerts` / `audit_log` | 1 year | deleted |
+| `device_events` | 90 days | deleted |
+| Screenshots (Phase 7) | 7 days | deleted |
+| `alerts` / `audit_log` | 1 year (`retention.alerts` governs both) | deleted |
 | `sessions` | 1 year | deleted |
 
 Retention is configurable per category. Deletion is a real `DELETE` + `VACUUM`
@@ -187,9 +202,12 @@ Retention is configurable per category. Deletion is a real `DELETE` + `VACUUM`
 
 ## 5.4 Data volume estimate
 
-At 5 s sampling, ~17,280 samples/day/user ≈ ~2–4 MB/day raw depending on title
-storage. With 90-day raw retention, < ~400 MB per user is expected — acceptable
-for local disk; aggregator keeps this bounded.
+At 5 s sampling, a full day of samples is ~17,280 rows/user ≈ ~2–4 MB/day raw
+depending on title storage (an upper bound: samples exist only while a session
+is open and a foreground provider is working). With the default 30-day raw
+retention that is roughly 60–120 MB per user at steady state — acceptable for
+local disk; the aggregator keeps this bounded. These are estimates to be
+measured once code exists (NFR-1.3, AC-42).
 
 Hourly history is small: at most 24 `hourly_usage` rows per user per day
 (≈ 9 k rows/year) and a few `hourly_app_usage` rows per active hour, together
@@ -197,7 +215,9 @@ well under ~5 MB per user per year at the default 1-year retention.
 
 ## 5.5 Export format
 
-JSONL for events, CSV for aggregates. Export bundle includes a manifest with
-schema version, date range, and users, plus a checksum. The bundle includes
-`hourly_usage` and `hourly_app_usage` (FR-10.5); hourly CSV has one row per
-user-hour with the columns above.
+`parent-tracker export` writes a single **JSON document** containing a manifest
+(schema version, date range, users, checksum) and every dataset, including
+`hourly_usage` and `hourly_app_usage` (FR-10.5). `parent-tracker report`
+produces CSV for aggregates (hourly CSV has one row per user-hour with the
+columns above). JSONL for very large event tables is a later option; there is no
+import command in the first release.

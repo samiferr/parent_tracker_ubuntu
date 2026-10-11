@@ -24,27 +24,36 @@ Requirement IDs are stable and referenced by tests and the roadmap.
 | --- | --- | --- |
 | FR-2.1 | MUST | The admin defines a **monitored-users allowlist** (by username/UID). Only these accounts are tracked. |
 | FR-2.2 | MUST | Record session start (login/unlock) and end (logout/lock/shutdown) with timestamps, per monitored user. |
-| FR-2.3 | MUST | Distinguish session states: **active**, **idle**, **locked/screensaver**, **screen-off**, **suspended**, **logged-out**. |
+| FR-2.3 | MUST | Distinguish session states: **active**, **idle**, **locked/screensaver**, **suspended**, **logged-out**. Distinguishing **screen-off** is SHOULD: systemd-logind has no screen-off signal, so it needs a compositor-specific source (see [04 §4.3](04-architecture.md#43-collection-mechanisms-per-environment)); where unavailable it is folded into idle/locked. |
 | FR-2.4 | MUST | Compute **active time** as time in `active` state only; never count locked/idle time as usage. |
 | FR-2.5 | MUST | Detect idle via system sources (logind idle hint / D-Bus screensaver) rather than only synthetic input polling. |
 | FR-2.6 | SHOULD | Record boot/shutdown and suspend/resume boundaries so gaps are explainable. |
 | FR-2.7 | SHOULD | Support multiple monitored users active at once (fast user switching) and attribute time correctly. |
 | FR-2.8 | MAY | Record remote sessions (SSH) separately and exclude them from "screen time" by default. |
+| FR-2.9 | MUST | Detect the **session type** (`wayland`, `x11`, `tty`) of every session from systemd-logind and store it with the session; choose collectors per session accordingly. Login-screen (greeter) sessions are never tracked. |
 
 ## 2.3 Application & window tracking
 
+Both **Wayland and X11** sessions must be supported (NFR-3.3); the detailed
+support matrix and rationale are in [04 §4.13](04-architecture.md#413-session-types-wayland-and-x11).
+
 | ID | Priority | Requirement |
 | --- | --- | --- |
-| FR-3.1 | MUST | On X11, detect the **foreground window** (app, title, PID) on a configurable interval (default 5 s). |
-| FR-3.2 | MUST | On Wayland (GNOME), obtain the equivalent foreground-app signal via supported mechanisms (GNOME Shell extension / D-Bus / `org.gnome.Shell` APIs) or degraded fallback. |
+| FR-3.1 | MUST | On an **X11** session, detect the **foreground window** (app, title, PID) on a configurable interval (default 5 s) using EWMH (`_NET_ACTIVE_WINDOW`). |
+| FR-3.2 | MUST | On a **Wayland** GNOME session, obtain the foreground app from the project's **GNOME Shell extension**, which is the only supported route: the compositor hides other clients' windows, and GNOME's `org.gnome.Shell.Introspect` interface is restricted to allow-listed callers (the desktop portals), so a root daemon cannot use it. |
 | FR-3.3 | MUST | Map windows/PIDs to human-readable **application names** (desktop entry / `.desktop` file name / executable). |
 | FR-3.4 | MUST | Aggregate per-app time per day based on foreground samples, merging windows of the same app. |
 | FR-3.5 | SHOULD | Capture window **title** (optional, can be disabled for privacy) to distinguish e.g. document tabs. |
 | FR-3.6 | SHOULD | Track **idle-with-app-open** separately so "Chrome open all day" ≠ "Chrome used all day". |
 | FR-3.7 | SHOULD | Support per-app **categorisation** (games, school, social, video) via a configurable rules file. |
 | FR-3.8 | MAY | Track foreground app in full-screen/game sessions where no title updates occur. |
+| FR-3.9 | MUST | The X11 provider is used **only** for `x11` sessions. On a `wayland` session it must not be used (XWayland exposes only X11 clients and would attribute time to the wrong or no window); without the extension, app data is reported as unavailable, never guessed. |
+| FR-3.10 | MUST | The core metrics (active / idle / locked time, sessions, gaps) come from systemd-logind and are **identical on Wayland and X11**; they must not depend on a foreground provider or on the session type. |
+| FR-3.11 | MUST | When app tracking is unavailable or degraded (Wayland without the extension, X11 unreachable, tty), say so in `doctor`, `/api/health` and a dashboard banner, and keep recording screen time. |
+| FR-3.12 | SHOULD | The package installs the GNOME Shell extension system-wide and enables it by default for monitored users, so that after one log-out/log-in no manual step is needed; loss of the extension (disabled, crashed, missing heartbeat) is logged and surfaced (SEC-35). |
+| FR-3.13 | MAY | Foreground-app support for KDE Plasma on Wayland (KWin scripting) and other compositors; until then those sessions record screen time only. |
 
-## 2.4 Web activity (phase 2)
+## 2.4 Web activity (Phase 4, opt-in)
 
 | ID | Priority | Requirement |
 | --- | --- | --- |
@@ -53,7 +62,7 @@ Requirement IDs are stable and referenced by tests and the roadmap.
 | FR-4.3 | MUST | Web tracking is individually switchable and **off by default**; enabling it is a deliberate admin action. |
 | FR-4.4 | MAY | Search-query capture (opt-in, high sensitivity; clearly surfaced to the child). |
 
-## 2.5 Screenshots (phase 3, optional)
+## 2.5 Screenshots (Phase 7, optional)
 
 | ID | Priority | Requirement |
 | --- | --- | --- |
@@ -119,7 +128,7 @@ Requirement IDs are stable and referenced by tests and the roadmap.
 | FR-8.2 | MUST | Configuration changes take effect without reinstall; service reload via `systemctl reload` or SIGHUP. |
 | FR-8.3 | SHOULD | The dashboard exposes the same settings with validation. |
 | FR-8.4 | MUST | Sensible, documented defaults; the system never silently starts tracking a new user. |
-| FR-8.5 | SHOULD | `parent-tracker doctor` diagnoses Wayland/X11 support, permissions, and collector health. |
+| FR-8.5 | SHOULD | `parent-tracker doctor` diagnoses OS support (Ubuntu 24.04+), the session type of each monitored user's session, whether the right foreground provider is working (X11 reachable / GNOME extension enabled and reporting), permissions, and collector health. |
 | FR-8.6 | SHOULD | Uninstall removes the service and (with confirmation) its data. |
 
 ## 2.9 Enforcement (later phase, opt-in)
@@ -136,7 +145,7 @@ Requirement IDs are stable and referenced by tests and the roadmap.
 
 | ID | Priority | Requirement |
 | --- | --- | --- |
-| FR-10.1 | MUST | Raw events are retained for a configurable window (default 90 days); older data is aggregated then deleted. |
+| FR-10.1 | MUST | Raw samples are retained for a configurable window (default **30 days**, see [05 §5.2](05-data-model.md#52-retention-policy)); older data survives only as aggregates. |
 | FR-10.2 | MUST | Admin can export all data (JSON/CSV) and **delete** data for a user or date range. |
 | FR-10.3 | SHOULD | The child can see (read-only) their own recorded data. |
 | FR-10.4 | MUST | Deletion is real (records removed), not just hidden. |

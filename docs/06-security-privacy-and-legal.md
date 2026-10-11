@@ -37,10 +37,11 @@
 | SEC-10 | Dashboard binds to `127.0.0.1` by default; LAN exposure requires an explicit change and a warning. |
 | SEC-11 | Dashboard requires authentication (password, and ideally TOTP). Credentials stored salted+hashed (argon2/bcrypt). |
 | SEC-12 | CLI admin commands require root/sudo or membership in an admin group. |
-| SEC-13 | Agent↔daemon socket authenticated by peer credentials (SO_PEERCRED) and restricted to monitored UIDs. |
+| SEC-13 | Agent↔daemon socket authenticated by peer credentials (SO_PEERCRED) and restricted to monitored UIDs; connections from greeter or remote sessions, or from any non-monitored user, are refused. |
 | SEC-14 | Any change to monitored-user list or collector enablement is written to `audit_log`. |
 | SEC-15 | Live endpoints (`/api/live`, `/api/live/stream`) and hourly endpoints (`/api/hourly`) require the same authentication as every other `/api/*` route, are same-origin only (no CORS), honour `allow_lan`, and cap concurrent live connections. |
 | SEC-16 | Live payloads obey the same collector switches as stored data: no window title unless `collectors.window_title` is on; no screen content, keystrokes or message content in any form. |
+| SEC-17 | The agent and the GNOME Shell extension are **sensors with minimal reach**: the extension has no network access, writes no files and reads no pixels or input; the agent collects nothing until the daemon confirms the user is monitored, and sends only the documented fields. Window titles are requested from the extension only when title capture is on. |
 
 ## 6.4 Data protection
 
@@ -64,6 +65,7 @@ Scope note: a user with root can ultimately disable anything; we aim for
 | SEC-32 | A "tracking gap" is explicitly visible rather than silently missing. |
 | SEC-33 | Optional integrity hash of recent events to detect tampering with the DB. |
 | SEC-34 | The service re-enables itself after package upgrades; disabling is a deliberate admin action. |
+| SEC-35 | **Trust boundary.** Session state (logind) is system-level and trustworthy. Foreground-app data originates in the monitored user's own session (agent, X server, GNOME Shell) and can be stopped or spoofed by a determined user. The design therefore gives evidence, not proof: loss of the agent or extension (killed, disabled, missing heartbeat, extension not loaded) is audit-logged, shown as an "app sensor lost" state on the dashboard and raised as an alert; the extension is enabled system-wide and locked against casual removal (see [04 §4.13.5](04-architecture.md#4135-gnome-wayland-provider-shell-extension)); documentation states the limit plainly. |
 
 ## 6.6 Privacy controls for the child
 
@@ -80,6 +82,9 @@ Scope note: a user with root can ultimately disable anything; we aim for
 | --- | --- |
 | Child reads/modifies DB | File permissions; DB owned by root/service account; audit log. |
 | Child disables service | Requires sudo; disable events logged and shown to parent. |
+| Child stops the agent or disables the GNOME Shell extension | Cannot be prevented from inside their own session; detected by missing heartbeat, audit-logged, banner + alert (SEC-35). Screen time from logind is unaffected. |
+| Child forges foreground-app data from their own session | Possible in principle (sensors run as the child); mitigated only by evidence/plausibility, not prevented. Stated in the docs. |
+| Child switches between Wayland and X11 to avoid app tracking | Both are supported (NFR-3.3); session state is recorded either way, and each session's provider health is shown. |
 | Other LAN devices access dashboard | Loopback default; auth required; explicit opt-in to LAN. |
 | Data exfiltration via export | Restrictive file perms; warning. |
 | Malicious local user spoofs agent | SO_PEERCRED check; socket root-owned. |
