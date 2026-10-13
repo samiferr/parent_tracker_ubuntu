@@ -20,6 +20,7 @@ const (
 	StatusDisabled    = "disabled"     // the extension is installed but turned off
 	StatusNoHeartbeat = "no-heartbeat" // the extension is loaded but not answering
 	StatusUnreachable = "unreachable"  // the X server cannot be reached
+	StatusNoEWMH      = "no-ewmh"      // X is up but the window manager does not report the active window (yet)
 	StatusError       = "error"
 )
 

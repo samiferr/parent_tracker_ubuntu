@@ -138,7 +138,7 @@ func TestX11ReadsTheActiveWindow(t *testing.T) {
 
 	// no window manager yet: say so rather than guess (FR-3.11)
 	rep := p.Poll(ctx, false)
-	if rep.Status != agentproto.StatusUnreachable || rep.Provider != "x11" {
+	if rep.Status != agentproto.StatusNoEWMH || rep.Provider != "x11" || rep.Detail == "" {
 		t.Fatalf("without EWMH: %+v", rep)
 	}
 

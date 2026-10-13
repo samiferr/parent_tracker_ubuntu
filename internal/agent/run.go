@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"os"
 	"sync"
 	"time"
 
@@ -98,6 +99,8 @@ func runOnce(ctx context.Context, o *Options) error {
 	if !w.Monitored {
 		return ErrNotMonitored{Reason: w.Reason}
 	}
+	o.log().Info("connected to the daemon", "session", w.SessionID, "provider", w.Provider, "interval_ms", w.IntervalMs,
+		"display", os.Getenv("DISPLAY"), "session_type", o.SessionType)
 
 	var (
 		mu       sync.Mutex
@@ -135,6 +138,7 @@ func runOnce(ctx context.Context, o *Options) error {
 
 	var prov Provider
 	var provFor model.Provider
+	var lastStatus, lastDetail string
 	defer func() {
 		if prov != nil {
 			prov.Close()
@@ -174,6 +178,16 @@ func runOnce(ctx context.Context, o *Options) error {
 		}
 		rep := prov.Poll(ctx, tt)
 		rep.Type = "report"
+		if rep.Status != lastStatus || rep.Detail != lastDetail {
+			// Only changes are logged: this is how a sensor that never worked is
+			// told apart from one that stopped, in `journalctl --user -u parent-tracker-agent`.
+			if rep.Status == agentproto.StatusOK {
+				o.log().Info("foreground sensor is working", "provider", rep.Provider)
+			} else {
+				o.log().Warn("foreground sensor is not working", "provider", rep.Provider, "status", rep.Status, "detail", rep.Detail)
+			}
+			lastStatus, lastDetail = rep.Status, rep.Detail
+		}
 		if err := enc.Encode(rep); err != nil {
 			return err
 		}

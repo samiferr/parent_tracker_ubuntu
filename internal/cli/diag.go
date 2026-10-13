@@ -391,4 +391,13 @@ func (d *doctor) checkPackaging() {
 		return
 	}
 	d.add("ok", "Agent unit", "Installed.", "")
+	// Desktops such as Xfce (Xubuntu) never reach graphical-session.target, which
+	// is what starts the unit, so the autostart entry is what starts the agent there.
+	for _, f := range []string{"/etc/xdg/autostart/parent-tracker-agent.desktop", "/usr/lib/parent-tracker/agent-session-start"} {
+		if _, err := fs.Stat(os.DirFS("/"), strings.TrimPrefix(filepath.Join(d.a.Root, f), "/")); err != nil {
+			d.add("FAIL", "Agent autostart", f+" is missing, so the agent will not start at login on desktops other than GNOME.", "Reinstall the parent-tracker package.")
+			return
+		}
+	}
+	d.add("ok", "Agent autostart", "Installed: the agent starts at login on every desktop.", "")
 }

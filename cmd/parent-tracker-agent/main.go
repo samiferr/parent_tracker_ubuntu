@@ -37,8 +37,22 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
+	// One agent per user. It is started by the systemd user unit where the desktop
+	// reaches graphical-session.target (GNOME) and by an XDG autostart entry
+	// everywhere (Xfce never reaches that target); whichever comes second leaves.
+	release, got, err := agent.Lock(agent.LockFile(os.Getenv("XDG_RUNTIME_DIR"), os.Getuid()))
+	switch {
+	case err != nil:
+		log.Warn("cannot take the single-instance lock; starting anyway", "err", err)
+	case !got:
+		log.Info("another agent is already running for this user; exiting")
+		return // exit 0: systemd does not restart a clean exit
+	default:
+		defer release()
+	}
+
 	apps := appmap.New()
-	err := agent.Run(ctx, agent.Options{
+	err = agent.Run(ctx, agent.Options{
 		Socket: *socket, Log: log,
 		SessionHint: os.Getenv("XDG_SESSION_ID"), SessionType: os.Getenv("XDG_SESSION_TYPE"),
 		NewProvider: func(p model.Provider) agent.Provider {

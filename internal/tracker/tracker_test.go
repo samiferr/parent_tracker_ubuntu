@@ -590,6 +590,56 @@ func TestNoAgentWithinGraceIsQuietThenAnnounced(t *testing.T) {
 	}
 }
 
+// An Xfce autostart entry can start the agent a moment before the window
+// manager has set _NET_SUPPORTED. That must not raise a "sensor lost" alert at
+// every login; a window manager that never appears is still announced, with a
+// message naming the window manager.
+func TestAgentStartedBeforeTheWindowManagerIsQuiet(t *testing.T) {
+	h := newHarness(t, "kid")
+	login(h, "2", 1000, "kid", "x11", "xubuntu")
+	h.tick()
+	for i := 0; i < 4; i++ {
+		h.now = h.now.Add(5 * time.Second)
+		h.report("2", agentproto.Report{Provider: "x11", Status: agentproto.StatusNoEWMH, Detail: "no _NET_ACTIVE_WINDOW"})
+		h.tick()
+	}
+	snap, _ := h.hub.Snapshot(1000)
+	if len(snap.Degraded) != 0 || len(h.notices) != 0 {
+		t.Fatalf("no banner or alert while the window manager starts: %+v / %+v", snap.Degraded, h.notices)
+	}
+	h.now = h.now.Add(5 * time.Second)
+	h.report("2", okReport("x11", "thunar", "Thunar", ""))
+	h.tick()
+	snap, _ = h.hub.Snapshot(1000)
+	if snap.AppStatus != "ok" || snap.App == nil || snap.App.ID != "thunar" || len(h.notices) != 0 {
+		t.Fatalf("snapshot = %+v, notices = %+v", snap, h.notices)
+	}
+
+	// a window manager that never provides EWMH is announced once the grace period is over
+	h2 := newHarness(t, "kid")
+	login(h2, "2", 1000, "kid", "x11", "xubuntu")
+	h2.tick()
+	for i := 0; i < 20; i++ {
+		h2.now = h2.now.Add(5 * time.Second)
+		h2.report("2", agentproto.Report{Provider: "x11", Status: agentproto.StatusNoEWMH})
+		h2.tick()
+	}
+	snap, _ = h2.hub.Snapshot(1000)
+	if len(snap.Degraded) != 1 || snap.Degraded[0].Reason != ReasonX11NoEWMH || !strings.Contains(snap.Degraded[0].Message, "window manager") {
+		t.Fatalf("degraded = %+v", snap.Degraded)
+	}
+}
+
+// On X11 the "log out and back in" advice alone is not enough when the agent is
+// still not running afterwards: the user's own service manager says why.
+func TestAgentNotRunningOnX11PointsAtTheUserService(t *testing.T) {
+	s := collector.UserSession("2", 1000, "kid", "x11", "xubuntu")
+	msg, next := Describe(ReasonAgentNotRunning, "kid", s)
+	if !strings.Contains(msg, "X11 session") || !strings.Contains(next, "systemctl --user status parent-tracker-agent") {
+		t.Fatalf("%q / %q", msg, next)
+	}
+}
+
 func TestTTYAndUnsupportedDesktopsAreExplained(t *testing.T) {
 	h := newHarness(t, "ilyes", "maram")
 	login(h, "2", 1000, "ilyes", "tty", "")
@@ -737,7 +787,7 @@ func TestDescribeNamesTheSessionAndTheNextStep(t *testing.T) {
 		}
 	}
 	// copy rules (DS-5): no exclamation marks
-	for _, r := range []string{ReasonExtensionMissing, ReasonX11Unreachable, ReasonTTY, ReasonUnsupportedDesk, "other"} {
+	for _, r := range []string{ReasonExtensionMissing, ReasonX11Unreachable, ReasonX11NoEWMH, ReasonAgentNotRunning, ReasonTTY, ReasonUnsupportedDesk, "other"} {
 		m, n := Describe(r, "ilyes", s)
 		if strings.Contains(m+n, "!") {
 			t.Errorf("%s: exclamation mark in %q %q", r, m, n)

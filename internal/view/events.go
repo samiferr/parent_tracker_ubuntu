@@ -143,6 +143,7 @@ var sensorReasons = map[string]string{
 	"extension_disabled":     "the GNOME Shell extension was turned off",
 	"extension_no_heartbeat": "the GNOME Shell extension stopped answering",
 	"x11_unreachable":        "the agent cannot read the active window",
+	"x11_no_ewmh":            "the window manager does not report the active window",
 	"provider_error":         "the foreground-app sensor reported an error",
 	"provider_mismatch":      "the session type changed",
 	"tty":                    "text console sessions have no foreground app",

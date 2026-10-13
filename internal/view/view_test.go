@@ -339,7 +339,7 @@ func TestAuditDetailHumanisesSensorEvents(t *testing.T) {
 func TestEverySensorReasonHasAPlainPhrase(t *testing.T) {
 	for _, code := range []string{
 		tracker.ReasonAgentNotRunning, tracker.ReasonAgentSilent, tracker.ReasonExtensionMissing, tracker.ReasonExtensionDisabled,
-		tracker.ReasonExtensionNoBeat, tracker.ReasonX11Unreachable, tracker.ReasonProviderError, tracker.ReasonProviderMismatch,
+		tracker.ReasonExtensionNoBeat, tracker.ReasonX11Unreachable, tracker.ReasonX11NoEWMH, tracker.ReasonProviderError, tracker.ReasonProviderMismatch,
 		tracker.ReasonTTY, tracker.ReasonUnsupportedDesk,
 	} {
 		if sensorReasons[code] == "" {

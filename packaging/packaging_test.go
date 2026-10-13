@@ -94,6 +94,17 @@ func TestUnitsAndDesktopFilesPointAtRealThings(t *testing.T) {
 	if !strings.Contains(agentUnit, "ExecStart=/usr/bin/parent-tracker-agent") || !strings.Contains(agentUnit, "WantedBy=graphical-session.target") {
 		t.Error("the agent unit should run /usr/bin/parent-tracker-agent from graphical-session.target")
 	}
+	// Xfce (Xubuntu) never reaches graphical-session.target, so the unit alone
+	// leaves the agent unstarted there: an autostart entry must start it too.
+	agentDesktop := read(t, "packaging/parent-tracker-agent.desktop")
+	if !strings.Contains(agentDesktop, "Exec=/usr/lib/parent-tracker/agent-session-start") {
+		t.Error("the agent autostart entry should run the launcher")
+	}
+	for _, banned := range []string{"OnlyShowIn", "NotShowIn", "Hidden=true"} {
+		if strings.Contains(agentDesktop, banned) {
+			t.Errorf("the agent autostart entry uses %s; it must start on every desktop", banned)
+		}
+	}
 	for _, bin := range []string{"parent-trackerd", "parent-tracker", "parent-tracker-agent"} {
 		if _, err := os.Stat(filepath.Join("..", "cmd", bin, "main.go")); err != nil {
 			t.Errorf("no cmd/%s", bin)
@@ -301,6 +312,7 @@ func TestPackageLifecycle(t *testing.T) {
 		"usr/share/gnome-shell/extensions/" + agent.ExtensionUUID + "/metadata.json",
 		"usr/share/gnome-shell/extensions/" + agent.ExtensionUUID + "/extension.js",
 		"etc/xdg/autostart/parent-tracker-notice.desktop", "usr/share/applications/parent-tracker-self.desktop",
+		"etc/xdg/autostart/parent-tracker-agent.desktop", "usr/lib/parent-tracker/agent-session-start",
 		"usr/share/doc/parent-tracker/copyright", "usr/share/doc/parent-tracker/config.toml.example",
 		"usr/share/bash-completion/completions/parent-tracker",
 	} {
@@ -370,5 +382,76 @@ func TestPackageLifecycle(t *testing.T) {
 		if exists(rel) {
 			t.Errorf("purge left %s", rel)
 		}
+	}
+}
+
+// runLauncher runs packaging/agent-session-start with a fake systemctl that
+// records its arguments and succeeds or fails as asked, and a fake agent binary
+// that records that it ran. It returns what each recorded.
+func runLauncher(t *testing.T, startFails bool, env ...string) (systemctlCalls, agentRan string) {
+	t.Helper()
+	dir := t.TempDir()
+	calls, ran := filepath.Join(dir, "calls"), filepath.Join(dir, "ran")
+	sysctl := "#!/bin/sh\necho \"$*\" >> " + calls + "\n"
+	if startFails {
+		sysctl += "case \"$*\" in *start*) exit 1;; esac\n"
+	}
+	sysctl += "exit 0\n"
+	if err := os.WriteFile(filepath.Join(dir, "systemctl"), []byte(sysctl), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "agent"), []byte("#!/bin/sh\necho ran > "+ran+"\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	script, _ := filepath.Abs("agent-session-start")
+	cmd := exec.Command("sh", script)
+	cmd.Env = append([]string{"PATH=" + dir + ":/usr/bin:/bin", "PARENT_TRACKER_AGENT=" + filepath.Join(dir, "agent")}, env...)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("agent-session-start: %v\n%s", err, out)
+	}
+	c, _ := os.ReadFile(calls)
+	r, _ := os.ReadFile(ran)
+	return string(c), string(r)
+}
+
+// The reason the launcher exists: on Xfce nothing hands DISPLAY to the user's
+// service manager, so the session's variables are imported first, and the unit
+// is started by name instead of waiting for graphical-session.target.
+func TestAgentLauncherStartsTheUnitWithTheSessionsDisplay(t *testing.T) {
+	calls, ran := runLauncher(t, false, "DISPLAY=:0", "XAUTHORITY=/home/kid/.Xauthority")
+	lines := strings.Split(strings.TrimSpace(calls), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("systemctl calls = %q", lines)
+	}
+	if !strings.HasPrefix(lines[0], "--user import-environment ") || !strings.Contains(lines[0], "DISPLAY") || !strings.Contains(lines[0], "XAUTHORITY") {
+		t.Errorf("the session environment is not imported first: %q", lines[0])
+	}
+	if lines[1] != "--user start parent-tracker-agent.service" {
+		t.Errorf("the unit is not started: %q", lines[1])
+	}
+	if ran != "" {
+		t.Error("the agent was also run directly although the unit started")
+	}
+}
+
+func TestAgentLauncherRunsTheAgentWhenTheUnitCannotStart(t *testing.T) {
+	_, ran := runLauncher(t, true, "DISPLAY=:0")
+	if ran == "" {
+		t.Error("the unit failed to start and the agent was not run directly")
+	}
+}
+
+func TestAgentLauncherWorksWithoutSystemd(t *testing.T) {
+	dir := t.TempDir()
+	ran := filepath.Join(dir, "ran")
+	os.WriteFile(filepath.Join(dir, "agent"), []byte("#!/bin/sh\necho ran > "+ran+"\n"), 0o755)
+	script, _ := filepath.Abs("agent-session-start")
+	cmd := exec.Command("/bin/sh", script)
+	cmd.Env = []string{"PATH=/nonexistent", "PARENT_TRACKER_AGENT=" + filepath.Join(dir, "agent")}
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	if _, err := os.Stat(ran); err != nil {
+		t.Error("without systemctl the agent should still be run")
 	}
 }

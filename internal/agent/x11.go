@@ -68,7 +68,7 @@ func (x *X11) connect() error {
 		display = os.Getenv("DISPLAY")
 	}
 	if display == "" {
-		return fmt.Errorf("DISPLAY is not set")
+		return fmt.Errorf("DISPLAY is not set in the agent's environment (it was started outside the graphical session)")
 	}
 	c, err := xgb.NewConnDisplay(display)
 	if err != nil {
@@ -122,7 +122,10 @@ func (x *X11) read(titles bool) (agentproto.Report, error) {
 	rep := agentproto.Report{Type: "report", Provider: string(model.ProviderX11), Status: agentproto.StatusOK}
 
 	// A window manager that does not advertise _NET_ACTIVE_WINDOW cannot tell us
-	// what is focused; say so rather than reporting "nothing".
+	// what is focused; say so rather than reporting "nothing". This is its own
+	// status because it is also what an agent sees when it starts a moment
+	// before the window manager does (an Xfce autostart entry can), and that
+	// must not be announced as a lost sensor straight away.
 	sup, err := x.prop(x.root, "_NET_SUPPORTED")
 	if err != nil {
 		return rep, err
@@ -132,7 +135,7 @@ func (x *X11) read(titles bool) (agentproto.Report, error) {
 		return rep, err
 	}
 	if !ok {
-		rep.Status, rep.Detail = agentproto.StatusUnreachable, "the window manager does not support _NET_ACTIVE_WINDOW"
+		rep.Status, rep.Detail = agentproto.StatusNoEWMH, "the window manager does not support _NET_ACTIVE_WINDOW"
 		return rep, nil
 	}
 

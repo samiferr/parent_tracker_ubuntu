@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Parent Tracker agent
+Comment=Reports the application in front to the Parent Tracker service (monitored accounts only)
+Exec=/usr/lib/parent-tracker/agent-session-start
+TryExec=/usr/bin/parent-tracker-agent
+Terminal=false
+NoDisplay=true
+X-GNOME-Autostart-enabled=true
+X-GNOME-Autostart-Phase=Applications
