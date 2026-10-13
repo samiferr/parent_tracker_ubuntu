@@ -1,0 +1,26 @@
+#!/bin/sh
+# Starts parent-tracker-agent for the graphical session this runs in.
+#
+# Run by the XDG autostart entry /etc/xdg/autostart/parent-tracker-agent.desktop,
+# which every desktop honours. The systemd user unit alone is not enough: it is
+# wanted by graphical-session.target, and Xfce (Xubuntu) and several other
+# desktops never reach that target, so the agent would not start at all.
+#
+# The unit is still the preferred way to run the agent (restart on a crash,
+# logs in the user journal), so this starts it, first handing the session's
+# display variables to the user's service manager, which does not have them on
+# a desktop that does not import them itself. If the unit cannot be started the
+# agent is run directly: it takes a per-user lock, so a second start is harmless.
+
+vars="DISPLAY XAUTHORITY WAYLAND_DISPLAY XDG_SESSION_ID XDG_SESSION_TYPE XDG_SESSION_DESKTOP XDG_CURRENT_DESKTOP"
+
+if command -v systemctl >/dev/null 2>&1; then
+  # Unset variables are skipped by systemctl.
+  # shellcheck disable=SC2086
+  systemctl --user import-environment $vars >/dev/null 2>&1 || true
+  if systemctl --user start parent-tracker-agent.service >/dev/null 2>&1; then
+    exit 0
+  fi
+  echo "parent-tracker: could not start parent-tracker-agent.service; running the agent directly" >&2
+fi
+exec "${PARENT_TRACKER_AGENT:-/usr/bin/parent-tracker-agent}"

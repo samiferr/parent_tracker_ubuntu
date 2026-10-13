@@ -22,6 +22,7 @@ const (
 	ReasonExtensionDisabled = "extension_disabled"
 	ReasonExtensionNoBeat   = "extension_no_heartbeat"
 	ReasonX11Unreachable    = "x11_unreachable"
+	ReasonX11NoEWMH         = "x11_no_ewmh"
 	ReasonProviderError     = "provider_error"
 	ReasonProviderMismatch  = "provider_mismatch"
 	ReasonTTY               = "tty"
@@ -117,6 +118,8 @@ func reasonFor(found, fresh bool, rep agentproto.Report, want model.Provider) st
 		return ReasonExtensionNoBeat
 	case agentproto.StatusUnreachable:
 		return ReasonX11Unreachable
+	case agentproto.StatusNoEWMH:
+		return ReasonX11NoEWMH
 	}
 	return ReasonProviderError
 }
@@ -198,6 +201,13 @@ func Describe(reason, user string, s collector.SessionInfo) (message, nextStep s
 		return fmt.Sprintf("App tracking limited in a Wayland session. The GNOME Shell extension is not answering in %s's session.", user),
 			fmt.Sprintf("Ask %s to log out and back in, then run `parent-tracker doctor`.", user)
 	case ReasonAgentNotRunning:
+		if s.Type == model.SessionX11 {
+			// Logging in again is only the cure if the agent is started at login
+			// on this desktop; if it still is not running, the user's own service
+			// manager says why.
+			return fmt.Sprintf("App tracking limited in %s's X11 session. The tracker's agent is not running.", user),
+				fmt.Sprintf("Ask %s to log out and back in. If it is still not running, ask %s to run `systemctl --user status parent-tracker-agent` and `parent-tracker doctor`.", user, user)
+		}
 		return fmt.Sprintf("App tracking limited in %s's %s. The tracker's agent is not running.", user, kind),
 			fmt.Sprintf("Ask %s to log out and back in, then run `parent-tracker doctor`.", user)
 	case ReasonAgentSilent:
@@ -206,6 +216,9 @@ func Describe(reason, user string, s collector.SessionInfo) (message, nextStep s
 	case ReasonX11Unreachable:
 		return fmt.Sprintf("App tracking limited in an X11 session. The agent cannot read the active window in %s's session.", user),
 			"Check that the window manager supports the standard active-window property, then run `parent-tracker doctor`."
+	case ReasonX11NoEWMH:
+		return fmt.Sprintf("App tracking limited in an X11 session. The window manager in %s's session does not report the active window.", user),
+			"Use a window manager that supports the standard active-window property (Xfwm4, Mutter, KWin, Openbox and Marco all do), then run `parent-tracker doctor`."
 	case ReasonTTY:
 		return "App tracking is not available in a text console session.", "Screen time is still recorded."
 	case ReasonUnsupportedDesk:

@@ -100,6 +100,16 @@ credentials.
   `graphical-session.target`). The root daemon does not have to inject
   `DISPLAY`, `XAUTHORITY` or the session bus address into anything: the agent
   starts inside the user's own graphical session with the right environment.
+- `graphical-session.target` is only reached by desktops that integrate with
+  the systemd user manager (GNOME does). **Xfce (Xubuntu) does not**, so the
+  unit alone leaves the agent unstarted there. A second starter, the XDG
+  autostart entry `/etc/xdg/autostart/parent-tracker-agent.desktop`, runs on
+  every desktop: its launcher (`/usr/lib/parent-tracker/agent-session-start`)
+  imports the session's `DISPLAY`/`XAUTHORITY` into the user's service manager
+  (a desktop that does not do so itself leaves the unit without them) and starts
+  the same unit, falling back to running the agent directly. The agent takes a
+  per-user lock (`$XDG_RUNTIME_DIR/parent-tracker-agent.lock`) so that two
+  starters never leave two agents closing each other's connection.
 - The daemon watches logind for session start (including `Type` and `Class`)
   and decides per session whether it is monitored. The agent connects to the
   daemon's Unix-domain socket (owned by root); the daemon authenticates the

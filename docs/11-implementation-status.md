@@ -119,7 +119,7 @@ tools/ui-check/            optional headless-browser checks of the dashboard
 | FR-2.7 | Multiple monitored users | Done | per-user, per-session state; only the active seat session accrues active time |
 | FR-2.8 | Remote sessions | Partial | excluded from screen time; not recorded separately |
 | FR-2.9 | Per-session type | Done | logind `Type`; greeter and remote sessions never tracked |
-| FR-3.1 | X11 foreground window | Done | `internal/agent/x11.go` (EWMH), tested against Xvfb |
+| FR-3.1 | X11 foreground window | Done | `internal/agent/x11.go` (EWMH), tested against Xvfb. The agent is started by the systemd user unit (GNOME) **and** by an XDG autostart entry (Xfce/Xubuntu never reach `graphical-session.target`, so before this the agent never ran there); the autostart path has been tested with a fake `systemctl`, not on a real Xubuntu |
 | FR-3.2 | Wayland (GNOME) foreground via extension | Partial | extension and agent relay written; **never run in a real GNOME Shell** |
 | FR-3.3 | App id/name mapping | Done | `internal/appmap` (system, Flatpak and snap desktop entries) |
 | FR-3.4 | Per-app daily aggregation | Done | `rollup`, `app_usage` |

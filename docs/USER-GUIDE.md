@@ -182,7 +182,9 @@ default configuration. The package:
   not already exist,
 - enables (but does not forcibly start) `parent-trackerd.service`,
 - installs the per-session agent as a systemd user unit (enabled for all users)
-  and the GNOME Shell extension system-wide, switched on and locked through a
+  and an autostart entry that starts it at login on every desktop (Xfce and
+  other desktops never start the unit by themselves), and the GNOME Shell
+  extension system-wide, switched on and locked through a
   dconf default (see [section 2](#wayland-and-x11-sessions)),
 - installs a login notice for monitored users and a **What is recorded about me**
   menu entry,
@@ -932,7 +934,8 @@ journalctl -u parent-trackerd -n 100 --no-pager
 | Dashboard says "Sign-in is not set up yet" | Run `sudo parent-tracker setup` to choose a password. |
 | Dashboard unreachable from another device | Loopback-only by default; set `server.listen` and `server.allow_lan true`, then restart. |
 | No application data on a **Wayland** session | The GNOME Shell extension is not loaded yet (the child has not logged out and in since installation), or it was disabled. Ask them to log out and in, then run `parent-tracker doctor`. |
-| No application data on an **X11** session | The agent cannot reach the X server, or the window manager does not provide the standard active-window information (`_NET_ACTIVE_WINDOW`). Nothing extra needs installing. Check `parent-tracker doctor`. |
+| No application data on an **X11** session | The agent is not running, cannot reach the X server, or the window manager does not provide the standard active-window information (`_NET_ACTIVE_WINDOW`). Nothing extra needs installing. Check `parent-tracker doctor`, then, **as the monitored user**, `systemctl --user status parent-tracker-agent` and `journalctl --user -u parent-tracker-agent -b` (the agent logs the display it uses and why its sensor is not working). |
+| X11 session on **Xubuntu / Xfce**, "The tracker's agent is not running" | Versions before the autostart entry relied on `graphical-session.target`, which Xfce never reaches, so the agent was never started. Upgrade the package and log out and in once. |
 | No application data, session type `tty` | A text console has no windows; only session time is recorded. |
 | "App sensor lost" | The agent was stopped or the extension disabled in the child's session. See [section 2](#wayland-and-x11-sessions). Screen time is still recorded. |
 | `doctor` says the X11 session is not available | Expected on Ubuntu 25.10 and later (Wayland-only GNOME). Not a problem. |
@@ -976,6 +979,7 @@ sudo systemctl reload parent-trackerd
 | `/etc/dconf/db/local.d/90-parent-tracker` (and `locks/`) | System-wide default that enables and locks the extension. |
 | `/usr/lib/tmpfiles.d/parent-tracker.conf` | Runtime directory definitions. |
 | `/usr/lib/parent-tracker/gnome-extension-setup` | Turns the extension's dconf default and lock on or off. |
+| `/etc/xdg/autostart/parent-tracker-agent.desktop` | Starts the agent at login on every desktop, through `/usr/lib/parent-tracker/agent-session-start`. |
 | `/etc/xdg/autostart/parent-tracker-notice.desktop` | Shows the "activity is recorded" notice at login, for monitored users. |
 | `/usr/share/applications/parent-tracker-self.desktop` | The "What is recorded about me" menu entry. |
 | `/usr/share/doc/parent-tracker/` | Example config and docs. |

@@ -54,9 +54,14 @@ inst 0644 packaging/parent-trackerd.service      usr/lib/systemd/system/parent-t
 inst 0644 packaging/parent-tracker-agent.service usr/lib/systemd/user/parent-tracker-agent.service
 inst 0644 packaging/tmpfiles.conf                usr/lib/tmpfiles.d/parent-tracker.conf
 inst 0755 packaging/gnome-extension-setup        usr/lib/parent-tracker/gnome-extension-setup
+inst 0755 packaging/agent-session-start          usr/lib/parent-tracker/agent-session-start
 
 inst 0644 gnome-extension/metadata.json usr/share/gnome-shell/extensions/$uuid/metadata.json
 inst 0644 gnome-extension/extension.js  usr/share/gnome-shell/extensions/$uuid/extension.js
+
+# Starts the agent at login on every desktop. The systemd user unit is wanted by
+# graphical-session.target, which Xfce (Xubuntu) never reaches.
+inst 0644 packaging/parent-tracker-agent.desktop etc/xdg/autostart/parent-tracker-agent.desktop
 
 # The notice every monitored user sees at login, and a menu entry that shows
 # them what is recorded about them (SEC-2).
