@@ -178,7 +178,7 @@ tools/ui-check/            optional headless-browser checks of the dashboard
 | NFR-4.2, 4.3, 4.4 | File modes, loopback + auth, redacted logs | Done | |
 | NFR-4.5 | Encryption at rest | Not started | |
 | NFR-4.6 | systemd hardening | Partial | `NoNewPrivileges`, `ProtectSystem=strict`, kernel and cgroup protection, `MemoryDenyWriteExecute`. A capability bound and syscall filter were left out because they cannot be validated without a real systemd, and the desktop-alert channel needs `runuser` |
-| NFR-4.7 | Tamper evidence | Done | audit log, gaps, sensor-loss alerts, which are recorded even when alerts are off |
+| NFR-4.7 | Tamper evidence | Done | audit log (own dashboard tab, filter by period and level, CSV and JSON export; verified in headless Chromium and by tests, not on a real desktop), gaps, sensor-loss alerts, which are recorded even when alerts are off |
 | NFR-5.1–5.5 | Local-only, no telemetry, allowlist, self-view | Done | the dashboard loads nothing from another origin (tested) |
 | NFR-6.1–6.3 | `.deb`, upgrade safety, purge | Done | install, upgrade, remove, purge tested in a scratch root |
 | NFR-6.4, 6.9 | Migrations with backup, hourly backfill | Done | |

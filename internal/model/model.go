@@ -132,7 +132,31 @@ const (
 	AuditClockSkew         = "clock_skew"
 	AuditDisclosureAck     = "disclosure_acknowledged"
 	AuditSetup             = "setup"
+	// AuditError and AuditWarning are what the service itself logged as an
+	// error or a warning (a failed rollup, a socket that stopped, ...).
+	AuditError   = "error"
+	AuditWarning = "warning"
 )
+
+// Audit levels, as shown and filtered in the dashboard's Audit log.
+const (
+	LevelError   = "error"
+	LevelWarning = "warning"
+	LevelInfo    = "info"
+)
+
+// AuditLevel is how serious an audit action is. A sensor that cannot read the
+// foreground application is an error: the parent is not getting the data they
+// expect.
+func AuditLevel(action string) string {
+	switch action {
+	case AuditError, AuditSensorLost, AuditSensorUnavailable:
+		return LevelError
+	case AuditWarning, AuditClockSkew, AuditCollectorDisabled, AuditDataDeleted:
+		return LevelWarning
+	}
+	return LevelInfo
+}
 
 // AuditEvent is one audit_log row.
 type AuditEvent struct {

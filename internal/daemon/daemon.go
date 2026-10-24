@@ -22,6 +22,7 @@ import (
 
 	"github.com/samiferr/parent_tracker_ubuntu/internal/agentsrv"
 	"github.com/samiferr/parent_tracker_ubuntu/internal/alert"
+	"github.com/samiferr/parent_tracker_ubuntu/internal/auditlog"
 	"github.com/samiferr/parent_tracker_ubuntu/internal/collector"
 	"github.com/samiferr/parent_tracker_ubuntu/internal/config"
 	"github.com/samiferr/parent_tracker_ubuntu/internal/control"
@@ -107,6 +108,8 @@ func New(o Options) (*Daemon, error) {
 		return nil, fmt.Errorf("open the database: %w", err)
 	}
 	d.db = db
+	// warnings and errors also go to the audit log, for the dashboard's Audit log
+	d.log = slog.New(auditlog.Wrap(o.Log.Handler(), db, o.Now))
 	d.hub = live.New(cfg.Server.LiveMaxClients, cfg.Server.Live)
 	d.listen = cfg.Server.Listen
 	return d, nil

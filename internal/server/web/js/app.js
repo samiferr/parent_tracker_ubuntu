@@ -10,6 +10,7 @@ import { HourlyView } from './views/hourly.js';
 import { TrendsView } from './views/trends.js';
 import { AppsView } from './views/apps.js';
 import { AlertsView } from './views/alerts.js';
+import { AuditView } from './views/audit.js';
 import { SettingsDrawer } from './views/settings.js';
 import { AboutDrawer } from './views/about.js';
 
@@ -21,6 +22,7 @@ const TABS = [
   { key: 'trends', title: 'Trends' },
   { key: 'apps', title: 'Apps' },
   { key: 'alerts', title: 'Alerts' },
+  { key: 'audit', title: 'Audit log' },
 ];
 const THEMES = [{ key: 'system', label: 'Match system' }, { key: 'light', label: 'Light' }, { key: 'dark', label: 'Dark' }];
 
@@ -80,6 +82,7 @@ function Dashboard({ session, onSignedOut }) {
       trends: h(TrendsView, shared),
       apps: h(AppsView, shared),
       alerts: h(AlertsView, shared),
+      audit: h(AuditView, shared),
     };
     body = h('main', { id: 'main' },
       h(Tabs, { 'aria-label': 'Sections', selectedKey: route, onSelectionChange: go, items: TABS.map((t) => ({ ...t, content: content[t.key] })) }));

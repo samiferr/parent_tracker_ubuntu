@@ -13,6 +13,13 @@ const secFmt = () => new Intl.DateTimeFormat('en-GB', { timeZone: zone, hour: '2
 export const fmtTime = (ms) => (ms ? timeFmt().format(new Date(ms)) : '—');
 export const fmtTimeSec = (ms) => (ms ? secFmt().format(new Date(ms)) : '—');
 
+// "Fri 9 Oct, 14:05:30" in the PC's timezone.
+export function fmtDateTime(ms, withSeconds) {
+  if (!ms) return '—';
+  const day = new Intl.DateTimeFormat('en-CA', { timeZone: zone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(ms));
+  return fmtDay(day) + ', ' + (withSeconds ? fmtTimeSec(ms) : fmtTime(ms));
+}
+
 export function fmtMinuteOfDay(m) {
   if (m == null || m < 0) return '—';
   return String(Math.floor(m / 60)).padStart(2, '0') + ':' + String(m % 60).padStart(2, '0');

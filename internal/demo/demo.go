@@ -238,6 +238,10 @@ func Seed(db *storage.DB, cfg *config.Config, now time.Time, loc *time.Location,
 	_ = db.Audit(nowMs-20*24*3600*1000, "admin", model.AuditUsersChanged, "added: cleo; removed: none")
 	_ = db.Audit(nowMs-3*24*3600*1000, "system", model.AuditSensorLost, "ben: x11 session 3: agent_silent")
 	_ = db.Audit(nowMs-3*24*3600*1000+90*1000, "system", model.AuditSensorRestored, "ben: x11 session 3")
+	_ = db.Audit(nowMs-26*3600*1000, "system", model.AuditSensorUnavailable, "cleo: gnome-wayland session c2: extension_missing")
+	_ = db.Audit(nowMs-25*3600*1000, "system", model.AuditSensorUnavailable, "ben: x11 session 5: x11_unreachable | dial unix /tmp/.X11-unix/X0: connect: permission denied")
+	_ = db.Audit(nowMs-5*3600*1000, "system", model.AuditError, "rollup failed: err=database is locked")
+	_ = db.Audit(nowMs-4*3600*1000, "system", model.AuditWarning, "agent: cannot identify peer: err=no peer credentials")
 	return nil
 }
 

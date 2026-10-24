@@ -347,3 +347,45 @@ func TestEverySensorReasonHasAPlainPhrase(t *testing.T) {
 		}
 	}
 }
+
+func TestAuditLevelsFilterAndTechnicalDetail(t *testing.T) {
+	f := newFx(t, "UTC")
+	o := time.October
+	f.db.Audit(f.at(o, 10, 9, 0), "system", model.AuditServiceStarted, "first start")
+	f.db.Audit(f.at(o, 10, 10, 0), "system", model.AuditSensorUnavailable, "ben: gnome-wayland session c2: provider_error | cannot reach the session bus:\n  no such file")
+	f.db.Audit(f.at(o, 10, 11, 0), "system", model.AuditError, "rollup failed: err=boom")
+	f.db.Audit(f.at(o, 11, 11, 0), "system", model.AuditClockSkew, "clock moved back by 2s")
+
+	av, err := f.v.Audit("2026-10-10", "2026-10-10", "all", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if av.Total != 3 || av.Counts[model.LevelError] != 2 || av.Counts[model.LevelInfo] != 1 || av.Counts[model.LevelWarning] != 0 {
+		t.Fatalf("one day = %+v", av)
+	}
+	if av.Entries[2].Title != "Service started" || av.Entries[0].Level != "error" || av.Entries[0].Title != "Service error" {
+		t.Fatalf("entries = %+v", av.Entries)
+	}
+	// the sensor entry reads as words and keeps the agent's text on one line
+	sensor := av.Entries[1].Description
+	if !strings.Contains(sensor, "ben's Wayland (GNOME) session: the foreground-app sensor reported an error.") ||
+		!strings.Contains(sensor, "The agent said: cannot reach the session bus: no such file") || strings.Contains(sensor, "|") {
+		t.Fatalf("sensor description = %q", sensor)
+	}
+
+	two, _ := f.v.Audit("2026-10-10", "2026-10-11", "warning", 0)
+	if two.Total != 1 || two.Entries[0].Level != "warning" || two.Counts[model.LevelError] != 2 {
+		t.Fatalf("warnings over two days = %+v", two)
+	}
+	// a cap limits the entries, never the totals
+	capped, _ := f.v.Audit("2026-10-10", "2026-10-11", "", 1)
+	if len(capped.Entries) != 1 || capped.Total != 4 {
+		t.Fatalf("capped = %+v", capped)
+	}
+	if _, err := f.v.Audit("2026-10-10", "2026-10-11", "loud", 0); err == nil {
+		t.Fatal("an unknown level must be refused")
+	}
+	if _, err := f.v.Audit("2026-10-11", "2026-10-10", "", 0); err == nil {
+		t.Fatal("a reversed period must be refused")
+	}
+}

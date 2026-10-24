@@ -2,6 +2,7 @@ package tracker
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/samiferr/parent_tracker_ubuntu/internal/agentproto"
@@ -36,6 +37,7 @@ type sensorState struct {
 	announced bool
 	lostAt    int64
 	reason    string
+	logged    string // the reason last written to the audit log
 }
 
 func (t *Tracker) sensorFor(sessionID string, now int64) *sensorState {
@@ -90,7 +92,23 @@ func (t *Tracker) sampleApp(cfg *config.Config, u *userState, now int64, out *[]
 	}
 
 	u.appStatus = model.AppDegraded
-	t.sensorBad(u, ss, provider, now, reasonFor(found, fresh, rep, provider))
+	detail := ""
+	if found && fresh {
+		detail = rep.Detail // what the agent says went wrong, e.g. the X11 or D-Bus error
+	}
+	t.sensorBad(u, ss, provider, now, reasonFor(found, fresh, rep, provider), detail)
+}
+
+// auditSensor writes the reason, and the agent's own error text when it sent
+// one, so the Audit log can say why apps cannot be read. The text follows " | "
+// and is kept on one line.
+func auditSensor(u *userState, p model.Provider, reason, detail string) string {
+	out := fmt.Sprintf("%s: %s session %s: %s", u.name, p, u.primary.ID, reason)
+	detail = strings.Join(strings.Fields(strings.ToValidUTF8(detail, "")), " ")
+	if detail != "" {
+		out += " | " + detail
+	}
+	return out
 }
 
 func nameOr(name, id string) string {
@@ -150,24 +168,30 @@ func (t *Tracker) sensorOK(u *userState, ss *sensorState, p model.Provider, now 
 	}
 }
 
-func (t *Tracker) sensorBad(u *userState, ss *sensorState, p model.Provider, now int64, reason string) {
+func (t *Tracker) sensorBad(u *userState, ss *sensorState, p model.Provider, now int64, reason, detail string) {
 	ss.reason = reason
 	name := collectorName(p, u.primary.ID)
 	if ss.ok { // it was working: this is a loss (AC-105)
-		ss.ok, ss.announced, ss.lostAt = false, true, now
-		_ = t.o.DB.Audit(now, "system", model.AuditSensorLost, fmt.Sprintf("%s: %s session %s: %s", u.name, p, u.primary.ID, reason))
+		ss.ok, ss.announced, ss.lostAt, ss.logged = false, true, now, reason
+		_ = t.o.DB.Audit(now, "system", model.AuditSensorLost, auditSensor(u, p, reason, detail))
 		_ = t.o.DB.SetCollectorHealth(storage.CollectorHealth{Collector: name, LastError: reason, Enabled: true})
 		msg, _ := Describe(reason, u.name, u.primary)
 		t.notify(Notice{Rule: "sensor_lost", UID: u.uid, User: u.name, Severity: "warn", Message: msg})
 		return
 	}
 	if ss.announced {
+		// Still down, but for a different reason (the extension was turned off,
+		// then the session bus went away): the log should say so.
+		if reason != ss.logged {
+			ss.logged = reason
+			_ = t.o.DB.Audit(now, "system", model.AuditSensorUnavailable, auditSensor(u, p, reason, detail))
+		}
 		return
 	}
 	grace := t.o.Cfg().SampleInterval.Milliseconds()*3 + 30_000
 	if definitive(reason) || now-ss.firstSeen >= grace {
-		ss.announced, ss.lostAt = true, 0
-		_ = t.o.DB.Audit(now, "system", model.AuditSensorUnavailable, fmt.Sprintf("%s: %s session %s: %s", u.name, p, u.primary.ID, reason))
+		ss.announced, ss.lostAt, ss.logged = true, 0, reason
+		_ = t.o.DB.Audit(now, "system", model.AuditSensorUnavailable, auditSensor(u, p, reason, detail))
 		_ = t.o.DB.SetCollectorHealth(storage.CollectorHealth{Collector: name, LastError: reason, Enabled: true})
 		msg, _ := Describe(reason, u.name, u.primary)
 		t.notify(Notice{Rule: "sensor_missing", UID: u.uid, User: u.name, Severity: "warn", Message: msg})

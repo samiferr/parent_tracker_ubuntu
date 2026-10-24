@@ -148,7 +148,7 @@ Tamper-evidence and admin actions.
 | id | INTEGER PK | |
 | ts | TIMESTAMP | |
 | actor | TEXT | system / admin-uid |
-| action | TEXT | service_stopped, config_changed, collector_disabled, data_deleted, app_sensor_lost / app_sensor_restored (Wayland extension or agent), … |
+| action | TEXT | service_stopped, config_changed, collector_disabled, data_deleted, app_sensor_lost / app_sensor_unavailable / app_sensor_restored (Wayland extension or agent; the detail ends with ` \| ` and the agent's own error text when it sent one), error / warning (what the service logged), … |
 | detail | TEXT (JSON) | |
 
 ### `schema_migrations`
