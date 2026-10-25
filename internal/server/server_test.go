@@ -3,6 +3,7 @@ package server
 import (
 	"bufio"
 	"bytes"
+	"encoding/csv"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -138,7 +139,7 @@ func decode(t *testing.T, b []byte, v any) {
 func TestAPIRequiresAuthentication(t *testing.T) {
 	r := newRig(t)
 	for _, p := range []string{"/api/users", "/api/summary", "/api/hourly", "/api/trend", "/api/apps", "/api/apps/detail?app=x",
-		"/api/events", "/api/live", "/api/live/stream", "/api/health", "/api/settings", "/api/about"} {
+		"/api/events", "/api/audit", "/api/live", "/api/live/stream", "/api/health", "/api/settings", "/api/about"} {
 		resp, b := r.do("GET", p, nil)
 		if resp.StatusCode != 401 {
 			t.Errorf("GET %s = %d %s, want 401", p, resp.StatusCode, b)
@@ -695,3 +696,96 @@ func TestAbout(t *testing.T) {
 type urlT = url.URL
 
 func parseURL(s string) (*url.URL, error) { return url.Parse(s) }
+
+func TestAuditLogFilterAndExport(t *testing.T) {
+	r := newRig(t) // now = 2026-10-11 18:00 UTC
+	at := func(day, h int) int64 { return time.Date(2026, 10, day, h, 0, 0, 0, time.UTC).UnixMilli() }
+	r.db.Audit(at(4, 9), "system", model.AuditServiceStarted, "first start")
+	r.db.Audit(at(9, 10), "system", model.AuditSensorUnavailable, "ilyes: x11 session 3: x11_unreachable | dial unix /tmp/.X11-unix/X0: connect: permission denied")
+	r.db.Audit(at(10, 11), "system", model.AuditError, "rollup failed: err=database is locked")
+	r.db.Audit(at(10, 12), "system", model.AuditWarning, `=HYPERLINK("http://evil.example")`)
+	r.db.Audit(at(11, 8), "admin", model.AuditConfigChanged, "alerts.bedtime")
+	r.login()
+
+	var av struct {
+		From, To string
+		Level    string
+		Total    int
+		Counts   map[string]int
+		Entries  []struct {
+			Level, Title, Description, Detail string
+			ID                                int64
+		}
+	}
+	// default period: the last 7 days (10-05 .. 10-11), so the first start (10-04) is out
+	_, b := r.do("GET", "/api/audit", nil)
+	decode(t, b, &av)
+	if av.From != "2026-10-05" || av.To != "2026-10-11" || av.Total != 4 || av.Counts["error"] != 2 || av.Counts["warning"] != 1 || av.Counts["info"] != 1 {
+		t.Fatalf("default = %s", b)
+	}
+	if av.Entries[0].Title != "Settings changed" || av.Entries[len(av.Entries)-1].Level != "error" {
+		t.Fatalf("order/titles = %s", b)
+	}
+
+	// a custom period reaches further back
+	_, b = r.do("GET", "/api/audit?from=2026-10-01&to=2026-10-11", nil)
+	decode(t, b, &av)
+	if av.Total != 5 {
+		t.Fatalf("custom period total = %d: %s", av.Total, b)
+	}
+
+	// errors only: the sensor failure carries what the agent said
+	_, b = r.do("GET", "/api/audit?level=error", nil)
+	decode(t, b, &av)
+	if av.Total != 2 || len(av.Entries) != 2 || av.Counts["info"] != 1 {
+		t.Fatalf("errors = %s", b)
+	}
+	if d := av.Entries[1].Description; !strings.Contains(d, "cannot read the active window") || !strings.Contains(d, "permission denied") {
+		t.Fatalf("sensor description = %q", d)
+	}
+
+	// export as CSV: the whole period, as a download, with spreadsheet formulas defused
+	resp, b := r.do("GET", "/api/audit?from=2026-10-05&to=2026-10-11&format=csv", nil)
+	if resp.StatusCode != 200 || !strings.HasPrefix(resp.Header.Get("Content-Type"), "text/csv") ||
+		resp.Header.Get("Content-Disposition") != `attachment; filename="parent-tracker-audit-2026-10-05_to_2026-10-11.csv"` {
+		t.Fatalf("csv headers: %d %v", resp.StatusCode, resp.Header)
+	}
+	recs, err := csv.NewReader(strings.NewReader(strings.TrimPrefix(string(b), "\xef\xbb\xbf"))).ReadAll()
+	if err != nil {
+		t.Fatalf("csv: %v\n%s", err, b)
+	}
+	if len(recs) != 5 || strings.Join(recs[0], ",") != "time,level,actor,event,message,code,detail" {
+		t.Fatalf("csv = %q", recs)
+	}
+	if recs[1][0] != "2026-10-11T08:00:00Z" || recs[1][1] != "info" || recs[1][2] != "admin" {
+		t.Fatalf("first row = %q", recs[1])
+	}
+	for _, row := range recs[1:] {
+		for _, cell := range row[3:] {
+			if strings.HasPrefix(cell, "=") {
+				t.Fatalf("a cell would run as a formula: %q", cell)
+			}
+		}
+	}
+
+	// a level filter applies to the export, and the file name says so
+	resp, b = r.do("GET", "/api/audit?level=error&format=json", nil)
+	if cd := resp.Header.Get("Content-Disposition"); cd != `attachment; filename="parent-tracker-audit-2026-10-05_to_2026-10-11-error.json"` {
+		t.Fatalf("json name = %q", cd)
+	}
+	var ex struct {
+		Entries []struct{ Level, Code, Detail string }
+	}
+	decode(t, b, &ex)
+	if len(ex.Entries) != 2 || ex.Entries[0].Level != "error" || ex.Entries[1].Code != "app_sensor_unavailable" || !strings.Contains(ex.Entries[1].Detail, "x11_unreachable") {
+		t.Fatalf("json export = %s", b)
+	}
+
+	// bad input is a 400 with words, not a 500
+	for _, q := range []string{"from=nope", "level=fatal", "format=pdf", "from=2026-10-11&to=2026-10-01", "from=2024-01-01&to=2026-10-11"} {
+		resp, b := r.do("GET", "/api/audit?"+q, nil)
+		if resp.StatusCode != 400 || !strings.Contains(string(b), `"error"`) {
+			t.Errorf("GET /api/audit?%s = %d %s, want 400", q, resp.StatusCode, b)
+		}
+	}
+}

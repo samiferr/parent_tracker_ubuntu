@@ -1,16 +1,12 @@
 import { h, F, L, useState } from '../h.js';
 import { useFetch, useNarrow } from '../hooks.js';
-import { fmtDay, fmtTime, plural } from '../format.js';
+import { fmtDateTime, plural } from '../format.js';
 import { Loading, ErrorBox, Empty } from '../components.js';
 
 const { RadioGroup, Timeline, Badge } = L;
 const FILTERS = [{ value: 'all', label: 'Everything' }, { value: 'alert', label: 'Alerts' }, { value: 'gap', label: 'Tracking gaps' }, { value: 'audit', label: 'Service and settings' }];
 
-function when(ms) {
-  const d = new Date(ms);
-  const date = new Intl.DateTimeFormat('en-CA', { year: 'numeric', month: '2-digit', day: '2-digit' }).format(d);
-  return fmtDay(date) + ', ' + fmtTime(ms);
-}
+const when = (ms) => fmtDateTime(ms);
 
 // Alerts, tracking gaps and audit entries, newest first (docs/07 §7.2.5). Each
 // title names the event, so the dot colour is never the only cue.

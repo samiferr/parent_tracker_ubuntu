@@ -99,6 +99,7 @@ func (s *Server) Handler() http.Handler {
 	api("GET /api/apps", s.handleApps)
 	api("GET /api/apps/detail", s.handleAppDetail)
 	api("GET /api/events", s.handleEvents)
+	api("GET /api/audit", s.handleAudit)
 	api("GET /api/live", s.handleLive)
 	api("GET /api/live/stream", s.handleLiveStream)
 	api("GET /api/health", s.handleHealth)

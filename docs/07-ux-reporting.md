@@ -47,6 +47,19 @@
 ### 7.2.5 Alerts & timeline of events
 - Rule hits with timestamps; service/tracking gaps highlighted.
 
+### 7.2.5a Audit log
+- Own tab beside Alerts. Whole PC, not per user: app-sensor failures (with the
+  agent's error text, e.g. X11 or session-bus errors), service warnings and
+  errors, settings, user and data changes.
+- Period filter (today, 7, 30 days, custom dates; at most 400 days) and level
+  filter (error, warning, information). Level is derived from the action
+  (`model.AuditLevel`); a sensor that cannot read apps is an error.
+- Export of the selected period and level as CSV (UTF-8 with BOM, formulas
+  defused) or JSON, through `GET /api/audit?from=&to=&level=&format=csv|json`.
+  The screen lists the newest 500 entries; an export has all of them.
+- Service warnings and errors are copied into `audit_log` by a `slog` handler
+  (`internal/auditlog`), an identical message at most once every 15 minutes.
+
 ### 7.2.6 Settings (admin)
 - Monitored users, collectors on/off, retention, thresholds, alert channels,
   dashboard auth, LAN exposure toggle (with warning).

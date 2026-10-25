@@ -575,6 +575,46 @@ func TestSensorLostAndRestored(t *testing.T) {
 	}
 }
 
+// The audit entry carries what the agent said went wrong, so the Audit log can
+// show "cannot reach the session bus" and not only a reason code, and a change
+// of reason while the sensor stays down is logged too.
+func TestSensorAuditCarriesTheAgentsErrorText(t *testing.T) {
+	h := newHarness(t, "ilyes")
+	login(h, "2", 1000, "ilyes", "x11", "ubuntu-xorg")
+	h.tick()
+	for i := 0; i < 3; i++ {
+		h.report("2", okReport("x11", "firefox", "Firefox", ""))
+		h.now = h.now.Add(5 * time.Second)
+		h.tick()
+	}
+	bad := agentproto.Report{Provider: "x11", Status: agentproto.StatusUnreachable, Detail: "dial unix /tmp/.X11-unix/X0:\nconnect: permission denied"}
+	for i := 0; i < 4; i++ {
+		h.now = h.now.Add(5 * time.Second)
+		h.report("2", bad)
+		h.tick()
+	}
+	bad = agentproto.Report{Provider: "x11", Status: agentproto.StatusNoEWMH, Detail: "the window manager does not support _NET_ACTIVE_WINDOW"}
+	for i := 0; i < 4; i++ {
+		h.now = h.now.Add(5 * time.Second)
+		h.report("2", bad)
+		h.tick()
+	}
+	var got []string
+	ev, _ := h.db.AuditEvents(0, 1<<60, 100)
+	for i := len(ev) - 1; i >= 0; i-- {
+		if a := ev[i].Action; a == model.AuditSensorLost || a == model.AuditSensorUnavailable {
+			got = append(got, a+" "+ev[i].Detail)
+		}
+	}
+	want := []string{
+		"app_sensor_lost ilyes: x11 session 2: x11_unreachable | dial unix /tmp/.X11-unix/X0: connect: permission denied",
+		"app_sensor_unavailable ilyes: x11 session 2: x11_no_ewmh | the window manager does not support _NET_ACTIVE_WINDOW",
+	}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("audit entries:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+}
+
 func TestNoAgentWithinGraceIsQuietThenAnnounced(t *testing.T) {
 	h := newHarness(t, "ilyes")
 	login(h, "2", 1000, "ilyes", "x11", "ubuntu-xorg")

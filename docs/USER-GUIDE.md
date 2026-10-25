@@ -347,6 +347,15 @@ Open <http://127.0.0.1:8787> and sign in with the credentials from setup.
   history; it is not built yet.)
 - **Alerts & tracking gaps** — rule hits and any time the service was not
   recording.
+- **Audit log** — the service's own record of what it did and what went wrong,
+  for the whole PC rather than one account. Choose a period (today, 7 or 30
+  days, or your own dates) and a level (errors, warnings, information).
+  *Errors* include the app sensor failing, for example "the agent cannot read
+  the active window" with the system's own error text, and failures inside the
+  service. *Export CSV* and *Export JSON* save the chosen period and level as a
+  file (CSV opens in a spreadsheet; the file holds every entry, the screen the
+  newest 500). Entries are kept for the `alerts` retention time. The agent's
+  own messages are also in `journalctl --user -u parent-tracker-agent`.
 
 Use the **user selector** to switch between monitored accounts and the **date
 picker** to look at a specific day.

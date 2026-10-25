@@ -54,7 +54,7 @@ for (const scheme of ['light', 'dark']) {
     const theme = await page.evaluate(() => document.documentElement.getAttribute('data-theme'));
     if (theme !== scheme) fail(ctx, `data-theme is ${theme}, expected ${scheme} (follow the OS)`);
 
-    for (const tab of ['Today', 'Hourly history', 'Trends', 'Apps', 'Alerts']) {
+    for (const tab of ['Today', 'Hourly history', 'Trends', 'Apps', 'Alerts', 'Audit log']) {
       await page.click(`role=tab[name="${tab}"]`);
       await page.waitForTimeout(700);
       const m = await page.evaluate(() => ({

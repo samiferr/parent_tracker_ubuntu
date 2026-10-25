@@ -68,7 +68,7 @@ func (s *Server) daysAgo(n int) string {
 func (s *Server) fail(w http.ResponseWriter, err error) {
 	msg := err.Error()
 	// view errors for malformed input read "… must be YYYY-MM-DD: …"
-	if containsAny(msg, "must be YYYY-MM-DD", "must not be before", "between 1 and 400", "longer than 400") {
+	if containsAny(msg, "must be YYYY-MM-DD", "must not be before", "between 1 and 400", "longer than 400", "level must be") {
 		apiError(w, http.StatusBadRequest, msg, "Use dates like 2026-10-09.")
 		return
 	}

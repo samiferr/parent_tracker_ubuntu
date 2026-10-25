@@ -43,12 +43,14 @@ var auditTitles = map[string]struct{ title, variant string }{
 	model.AuditUsersChanged:      {"Monitored users changed", "informative"},
 	model.AuditCollectorDisabled: {"Collector turned off", "notice"},
 	model.AuditDataDeleted:       {"Recorded data deleted", "notice"},
-	model.AuditSensorLost:        {"App sensor lost", "notice"},
+	model.AuditSensorLost:        {"App sensor lost", "negative"},
 	model.AuditSensorRestored:    {"App sensor restored", "informative"},
-	model.AuditSensorUnavailable: {"App tracking limited", "notice"},
+	model.AuditSensorUnavailable: {"App tracking limited", "negative"},
 	model.AuditClockSkew:         {"Clock changed", "notice"},
 	model.AuditDisclosureAck:     {"Disclosure acknowledged", "informative"},
 	model.AuditSetup:             {"Setup run", "informative"},
+	model.AuditError:             {"Service error", "negative"},
+	model.AuditWarning:           {"Service warning", "notice"},
 }
 
 var gapReasons = map[string]string{
@@ -153,7 +155,7 @@ var sensorReasons = map[string]string{
 var providerNames = map[string]string{"x11": "X11", "gnome-wayland": "Wayland (GNOME)"}
 
 // sensorDetail is "user: provider session N[: reason]", as written by the tracker.
-var sensorDetail = regexp.MustCompile(`^([^:]+): ([a-z0-9-]+) session ([^:]+)(?:: (.+))?$`)
+var sensorDetail = regexp.MustCompile(`(?s)^([^:]+): ([a-z0-9-]+) session ([^:]+)(?:: (.+))?$`)
 
 func auditDetail(a model.AuditEvent) string {
 	if a.Detail == "" || a.Detail == "{}" {
@@ -170,17 +172,107 @@ func auditDetail(a model.AuditEvent) string {
 			if a.Action == model.AuditSensorRestored {
 				return who + " is reporting again."
 			}
-			why, ok := sensorReasons[m[4]]
+			code, tech, _ := strings.Cut(m[4], sensorTechSep)
+			tech = strings.Join(strings.Fields(tech), " ")
+			why, ok := sensorReasons[code]
 			if !ok {
-				why = strings.ReplaceAll(m[4], "_", " ")
+				why = strings.ReplaceAll(code, "_", " ")
 			}
-			if m[4] == "" {
+			if code == "" {
 				return who + "."
 			}
-			return who + ": " + why + "."
+			out := who + ": " + why + "."
+			if tech != "" {
+				out += " The agent said: " + tech
+			}
+			return out
 		}
 	}
 	return a.Detail
+}
+
+// sensorTechSep separates the reason code from the agent's own error text in
+// an app-sensor audit entry (see tracker.auditSensor).
+const sensorTechSep = " | "
+
+// AuditEntry is one row of the Audit log.
+type AuditEntry struct {
+	ID          int64  `json:"id"`
+	TS          int64  `json:"ts"`
+	Level       string `json:"level"` // error | warning | info
+	Actor       string `json:"actor"`
+	Action      string `json:"action"`
+	Title       string `json:"title"`
+	Description string `json:"description"`
+	// Detail is the stored text as written, for support and for the export.
+	Detail string `json:"detail"`
+}
+
+// AuditView is the Audit log screen's data: the entries of a period, newest
+// first, and how many entries of each level the period holds.
+type AuditView struct {
+	From      string         `json:"from"`
+	To        string         `json:"to"`
+	Level     string         `json:"level"`
+	Entries   []AuditEntry   `json:"entries"`
+	Counts    map[string]int `json:"counts"` // by level, before the level filter
+	Total     int            `json:"total"`  // entries matching the level filter
+	Truncated bool           `json:"truncated"`
+}
+
+// MaxAuditRows bounds how many rows one request reads.
+const MaxAuditRows = 100_000
+
+// Audit lists the audit log for fromDay..toDay inclusive (local days). level is
+// "", "all", "error", "warning" or "info". limit caps the entries returned
+// (0 for no cap other than MaxAuditRows); Counts and Total always cover the
+// whole period.
+func (v *Viewer) Audit(fromDay, toDay, level string, limit int) (*AuditView, error) {
+	fs, _, err := aggregate.ParseDay(v.Loc, fromDay)
+	if err != nil {
+		return nil, fmt.Errorf("from must be YYYY-MM-DD: %w", err)
+	}
+	_, te, err := aggregate.ParseDay(v.Loc, toDay)
+	if err != nil {
+		return nil, fmt.Errorf("to must be YYYY-MM-DD: %w", err)
+	}
+	if te <= fs {
+		return nil, fmt.Errorf("to must not be before from")
+	}
+	if (te-fs)/(24*3600*1000) > 400 {
+		return nil, fmt.Errorf("the range is longer than 400 days")
+	}
+	switch level {
+	case "", "all":
+		level = "all"
+	case model.LevelError, model.LevelWarning, model.LevelInfo:
+	default:
+		return nil, fmt.Errorf("level must be all, error, warning or info")
+	}
+	rows, err := v.DB.AuditEvents(fs, te, MaxAuditRows)
+	if err != nil {
+		return nil, err
+	}
+	out := &AuditView{From: fromDay, To: toDay, Level: level, Entries: []AuditEntry{},
+		Counts: map[string]int{model.LevelError: 0, model.LevelWarning: 0, model.LevelInfo: 0}, Truncated: len(rows) >= MaxAuditRows}
+	for _, a := range rows {
+		lv := model.AuditLevel(a.Action)
+		out.Counts[lv]++
+		if level != "all" && lv != level {
+			continue
+		}
+		out.Total++
+		if limit > 0 && len(out.Entries) >= limit {
+			continue
+		}
+		t, ok := auditTitles[a.Action]
+		if !ok {
+			t.title = a.Action
+		}
+		out.Entries = append(out.Entries, AuditEntry{ID: a.ID, TS: a.TS, Level: lv, Actor: a.Actor, Action: a.Action,
+			Title: t.title, Description: auditDetail(a), Detail: a.Detail})
+	}
+	return out, nil
 }
 
 // DefaultEventRange is the window shown by default: the last 30 days.

@@ -144,6 +144,7 @@ a { color: var(--accent-content); }
 .inline-actions { display: flex; flex-wrap: wrap; gap: var(--spacing-100); }
 .badge-row { display: flex; flex-wrap: wrap; gap: var(--spacing-100); align-items: center; }
 .table-wrap { overflow-x: auto; }
+.audit-detail { display: block; min-width: 18rem; white-space: normal; overflow-wrap: break-word; }
 .drawer-body { display: grid; gap: var(--spacing-300); }
 .hero { color: var(--content-heading); }
 .link-button { background: none; border: 0; padding: 0; color: var(--accent-content); cursor: pointer; text-decoration: underline; font: inherit; border-radius: var(--corner-radius-100); }
