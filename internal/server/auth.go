@@ -202,7 +202,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	}
 	s.auth.clear(ip)
 	tok, exp := s.auth.create()
-	http.SetCookie(w, &http.Cookie{Name: cookieName, Value: tok, Path: "/", Expires: exp, HttpOnly: true,
+	http.SetCookie(w, &http.Cookie{Name: cookieName, Value: tok, Path: "/", Expires: exp, MaxAge: int(sessionTTL.Seconds()), HttpOnly: true,
 		SameSite: http.SameSiteStrictMode, Secure: r.TLS != nil})
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "username": cfg.Server.Username})
 }
