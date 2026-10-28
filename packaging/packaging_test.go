@@ -155,10 +155,23 @@ func fakeGSettings(t *testing.T, out string, ok bool) string {
 	return dir
 }
 
+// toolsOnlyPath is a PATH directory with the system tools the scripts use, and
+// without gsettings, so a real one on the developer's machine never answers.
+func toolsOnlyPath(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	for _, tool := range []string{"mktemp", "rm", "mkdir", "dirname", "grep", "cat", "install", "systemctl", "systemd-tmpfiles", "sed", "chmod", "id"} {
+		if p, err := exec.LookPath(tool); err == nil {
+			os.Symlink(p, filepath.Join(dir, tool))
+		}
+	}
+	return dir
+}
+
 func runSetup(t *testing.T, root, fakeDir, action string) {
 	t.Helper()
 	cmd := exec.Command("sh", "gnome-extension-setup", action)
-	cmd.Env = []string{"PATH=" + fakeDir + ":/usr/bin:/bin", "PARENT_TRACKER_ROOT=" + root}
+	cmd.Env = []string{"PATH=" + fakeDir + ":" + toolsOnlyPath(t), "PARENT_TRACKER_ROOT=" + root}
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("gnome-extension-setup %s: %v\n%s", action, err, out)
 	}
@@ -227,10 +240,22 @@ func TestGnomeExtensionSetup(t *testing.T) {
 		if _, err := os.Stat(dbFile(root)); err == nil {
 			t.Fatal("wrote a dconf default on a system without GNOME Shell")
 		}
+		// No gsettings at all (a machine without GNOME): a PATH holding only the tools
+		// the script needs. The developer's own PATH may well have a real gsettings.
 		root = t.TempDir()
-		runSetup(t, root, t.TempDir(), "enable") // PATH still has /usr/bin; the real gsettings, if any, has no GNOME Shell schema here
+		bare := t.TempDir()
+		for _, tool := range []string{"mktemp", "rm", "mkdir", "dirname", "grep", "cat"} {
+			if p, err := exec.LookPath(tool); err == nil {
+				os.Symlink(p, filepath.Join(bare, tool))
+			}
+		}
+		cmd := exec.Command("sh", "gnome-extension-setup", "enable")
+		cmd.Env = []string{"PATH=" + bare, "PARENT_TRACKER_ROOT=" + root}
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("without gsettings: %v\n%s", err, out)
+		}
 		if _, err := os.Stat(dbFile(root)); err == nil {
-			t.Fatal("wrote a dconf default without a GNOME Shell schema")
+			t.Fatal("wrote a dconf default without gsettings")
 		}
 	})
 	t.Run("disable removes the default and the lock", func(t *testing.T) {
@@ -264,12 +289,12 @@ func TestPackageLifecycle(t *testing.T) {
 	repo, _ := filepath.Abs("..")
 	build := exec.Command("sh", "packaging/build-deb.sh", "v1.2.3-4-gabc1234-dirty", "arm64", bin)
 	build.Dir = repo
+	build.Env = append(os.Environ(), "DIST="+filepath.Join(work, "dist"))
 	out, err := build.CombinedOutput()
 	if err != nil {
 		t.Fatalf("build-deb.sh: %v\n%s", err, out)
 	}
-	deb := filepath.Join(repo, strings.TrimSpace(string(out)))
-	t.Cleanup(func() { os.Remove(deb) })
+	deb := strings.TrimSpace(string(out))
 	if !strings.HasSuffix(deb, "parent-tracker_1.2.3+4.gabc1234+dirty_arm64.deb") {
 		t.Fatalf("package name %q: the git version was not made Debian-valid", deb)
 	}
@@ -296,7 +321,7 @@ func TestPackageLifecycle(t *testing.T) {
 	script := func(name string, args ...string) string {
 		t.Helper()
 		cmd := exec.Command(filepath.Join(ctl, name), args...)
-		cmd.Env = []string{"PATH=" + fakeGSettings(t, "['ubuntu-dock@ubuntu.com']", true) + ":/usr/bin:/bin", "DPKG_ROOT=" + root}
+		cmd.Env = []string{"PATH=" + fakeGSettings(t, "['ubuntu-dock@ubuntu.com']", true) + ":" + toolsOnlyPath(t), "DPKG_ROOT=" + root}
 		out, err := cmd.CombinedOutput()
 		if err != nil {
 			t.Fatalf("%s %v: %v\n%s", name, args, err, out)
@@ -382,6 +407,43 @@ func TestPackageLifecycle(t *testing.T) {
 		if exists(rel) {
 			t.Errorf("purge left %s", rel)
 		}
+	}
+
+	// An existing configuration this version cannot read is reported at install
+	// time instead of failing later in `setup`.
+	script("postinst", "configure") // restore the layout removed by purge
+	os.MkdirAll(filepath.Join(root, "etc/parent-tracker"), 0o755)
+	os.WriteFile(cfgPath, []byte("[web]\nenabled = true\n"), 0o640)
+	failing := "#!/bin/sh\necho 'config: line 1: \"web\" is not a setting this version knows' >&2\nexit 1\n"
+	os.WriteFile(filepath.Join(root, "usr/bin/parent-tracker"), []byte(failing), 0o755)
+	warn := script("postinst", "configure", "0.9.0")
+	for _, want := range []string{"WARNING", `"web" is not a setting this version knows`, "setup --reset-config"} {
+		if !strings.Contains(warn, want) {
+			t.Errorf("postinst should warn about an unreadable configuration (missing %q):\n%s", want, warn)
+		}
+	}
+}
+
+// A build from an untagged commit gets a version that sorts by age, not a bare hash.
+func TestUntaggedVersionIsDebianValid(t *testing.T) {
+	if _, err := exec.LookPath("dpkg-deb"); err != nil {
+		t.Skip("dpkg-deb is not installed")
+	}
+	bin := t.TempDir()
+	for _, b := range []string{"parent-trackerd", "parent-tracker", "parent-tracker-agent"} {
+		os.WriteFile(filepath.Join(bin, b), []byte("#!/bin/sh\n"), 0o755)
+	}
+	repo, _ := filepath.Abs("..")
+	build := exec.Command("sh", "packaging/build-deb.sh", "0a7b274-dirty", "amd64", bin)
+	build.Dir = repo
+	build.Env = append(os.Environ(), "DIST="+filepath.Join(t.TempDir(), "dist"))
+	out, err := build.CombinedOutput()
+	if err != nil {
+		t.Fatalf("build-deb.sh: %v\n%s", err, out)
+	}
+	deb := strings.TrimSpace(string(out))
+	if !regexp.MustCompile(`parent-tracker_0\.0\.0~git\d+\.0a7b274\+dirty_amd64\.deb$`).MatchString(deb) {
+		t.Fatalf("version of %q should be 0.0.0~git<count>.<hash>+dirty", deb)
 	}
 }
 

@@ -198,3 +198,15 @@ func TestCategoryFor(t *testing.T) {
 		}
 	}
 }
+
+func TestUnknownKeysAreNamed(t *testing.T) {
+	_, err := Parse([]byte("monitored_users = []\nmystery = 1\n[web]\nenabled = true\n"))
+	if err == nil {
+		t.Fatal("unknown keys must be rejected")
+	}
+	for _, want := range []string{`line 2: "mystery"`, `"web"`, "not a setting this version knows"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error %q should contain %q", err, want)
+		}
+	}
+}

@@ -6,6 +6,7 @@ package config
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"net"
 	"os"
@@ -219,6 +220,17 @@ func Parse(raw []byte) (*Config, error) {
 	// A [[categories]] section in the file replaces the defaults entirely.
 	cfg.Categories = nil
 	if err := dec.Decode(cfg); err != nil {
+		var missing *toml.StrictMissingError
+		if errors.As(err, &missing) {
+			// Name every key this version does not know, so a file written by
+			// another version (or a typo) can be fixed without guessing.
+			var found []string
+			for i := range missing.Errors {
+				row, _ := missing.Errors[i].Position()
+				found = append(found, fmt.Sprintf("line %d: %q is not a setting this version knows", row, strings.Join(missing.Errors[i].Key(), ".")))
+			}
+			return nil, fmt.Errorf("config: %s", strings.Join(found, "; "))
+		}
 		if de, ok := err.(*toml.DecodeError); ok {
 			row, col := de.Position()
 			return nil, fmt.Errorf("config: line %d, column %d: %s", row, col, de.Error())

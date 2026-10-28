@@ -61,6 +61,7 @@ type App struct {
 	ConfigPath   string
 	Socket       string // control socket for non-root commands
 	Root         string // prefix for system paths such as /usr/share (tests)
+	DataDir      string // data directory for a configuration created from the defaults (tests; empty means the built-in default)
 	Sessions     func(ctx context.Context) ([]collector.SessionInfo, error)
 
 	in *bufio.Reader
@@ -213,6 +214,18 @@ type stringList []string
 func (s *stringList) String() string     { return strings.Join(*s, ",") }
 func (s *stringList) Set(v string) error { *s = append(*s, v); return nil }
 
+// resetHint says how to start again when the configuration file cannot be used.
+const resetHint = "To start again from the defaults (the old file is kept as a backup): sudo parent-tracker setup --reset-config"
+
+// newConfig is the configuration of a fresh install.
+func (a *App) newConfig() *config.Config {
+	cfg := config.Default()
+	if a.DataDir != "" {
+		cfg.DataDir = a.DataDir
+	}
+	return cfg
+}
+
 func (a *App) loadConfig(path string) (*config.Config, error) {
 	cfg, err := config.Load(path)
 	switch {
@@ -223,19 +236,21 @@ func (a *App) loadConfig(path string) (*config.Config, error) {
 	case errors.Is(err, fs.ErrPermission):
 		return nil, fmt.Errorf("cannot read %s: run this command with sudo", path)
 	}
-	return nil, err
+	return nil, fmt.Errorf("%s: %v\n%s", path, err, resetHint)
 }
 
 // loadOrDefault is loadConfig, except a missing file yields the defaults.
 func (a *App) loadOrDefault(path string) (*config.Config, error) {
 	cfg, err := config.Load(path)
-	if errors.Is(err, fs.ErrNotExist) {
-		return config.Default(), nil
-	}
-	if errors.Is(err, fs.ErrPermission) {
+	switch {
+	case err == nil:
+		return cfg, nil
+	case errors.Is(err, fs.ErrNotExist):
+		return a.newConfig(), nil
+	case errors.Is(err, fs.ErrPermission):
 		return nil, fmt.Errorf("cannot read %s: run this command with sudo", path)
 	}
-	return cfg, err
+	return nil, fmt.Errorf("%s: %v\n%s", path, err, resetHint)
 }
 
 func (a *App) openRead(cfg *config.Config) (*storage.DB, error) {

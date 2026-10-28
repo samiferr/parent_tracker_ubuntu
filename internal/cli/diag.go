@@ -222,7 +222,7 @@ func (d *doctor) checkConfig(path string) *config.Config {
 		d.add("FAIL", "Configuration", "Cannot read "+path+" (it is readable by root only).", "Run `sudo parent-tracker doctor`.")
 		return nil
 	default:
-		d.add("FAIL", "Configuration", err.Error(), "Fix the file, or run `parent-tracker config list` to see valid keys.")
+		d.add("FAIL", "Configuration", err.Error(), "Fix the file (valid keys: `sudo parent-tracker config list`), or start again: `sudo parent-tracker setup --reset-config` (the old file is kept as a backup).")
 		return nil
 	}
 	if st, err := os.Stat(path); err == nil && st.Mode().Perm()&0o007 != 0 {

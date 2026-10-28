@@ -834,3 +834,15 @@ func TestDescribeNamesTheSessionAndTheNextStep(t *testing.T) {
 		}
 	}
 }
+
+func TestUnsupportedDesktopMessageNamesTheDesktop(t *testing.T) {
+	s := collector.UserSession("2", 1000, "maram", "wayland", "plasma")
+	msg, _ := Describe(ReasonUnsupportedDesk, "maram", s)
+	if !strings.Contains(msg, `Wayland session on this desktop ("plasma")`) {
+		t.Fatalf("the message should say which desktop logind reported: %q", msg)
+	}
+	s.Desktop = ""
+	if msg, _ := Describe(ReasonUnsupportedDesk, "maram", s); strings.Contains(msg, "(") {
+		t.Fatalf("no desktop, nothing to quote: %q", msg)
+	}
+}
