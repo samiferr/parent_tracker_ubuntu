@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/mail"
 	"os"
 	"path"
 	"path/filepath"
@@ -80,6 +81,7 @@ type Config struct {
 	Retention  Retention  `toml:"retention"`
 	Server     Server     `toml:"server"`
 	Alerts     Alerts     `toml:"alerts"`
+	Report     Report     `toml:"report"`
 	Categories []Category `toml:"categories"`
 }
 
@@ -128,6 +130,24 @@ type Alerts struct {
 	NotifyOnServiceStop bool     `toml:"notify_on_service_stop"`
 }
 
+// Report configures the daily report e-mail, sent through the Resend API
+// (https://resend.com). It summarises the previous local day for every
+// monitored user and goes to every address in Recipients.
+type Report struct {
+	Enabled bool `toml:"enabled"`
+	// SendAt is the local time (HH:MM) after which yesterday's report is sent.
+	SendAt string `toml:"send_at"`
+	// ResendAPIKey is secret: it is never shown by `config list`, returned by
+	// the dashboard or written to the audit log.
+	ResendAPIKey string   `toml:"resend_api_key"`
+	From         string   `toml:"from"`
+	Recipients   []string `toml:"recipients"`
+}
+
+// MaxReportRecipients is the most addresses one report goes to (the Resend
+// API's limit for one message).
+const MaxReportRecipients = 50
+
 // Category maps application ids to a human category with glob patterns.
 type Category struct {
 	Name     string   `toml:"name"`
@@ -174,6 +194,10 @@ func Default() *Config {
 			Channel:             "none",
 			NotifyOnServiceStop: true,
 		},
+		Report: Report{
+			SendAt:     "07:00",
+			Recipients: []string{},
+		},
 		Categories: DefaultCategories(),
 	}
 }
@@ -196,6 +220,7 @@ func (c *Config) DBPath() string { return filepath.Join(c.DataDir, c.DBName) }
 func (c *Config) Clone() *Config {
 	n := *c
 	n.MonitoredUsers = append([]string(nil), c.MonitoredUsers...)
+	n.Report.Recipients = append([]string{}, c.Report.Recipients...)
 	n.Categories = make([]Category, len(c.Categories))
 	for i, cat := range c.Categories {
 		n.Categories[i] = Category{Name: cat.Name, Patterns: append([]string(nil), cat.Patterns...)}
@@ -242,6 +267,9 @@ func Parse(raw []byte) (*Config, error) {
 	}
 	if cfg.MonitoredUsers == nil {
 		cfg.MonitoredUsers = []string{}
+	}
+	if cfg.Report.Recipients == nil {
+		cfg.Report.Recipients = []string{}
 	}
 	if err := cfg.Validate(); err != nil {
 		return nil, err
@@ -340,6 +368,30 @@ func (c *Config) Validate() error {
 	if c.Alerts.DailyActiveLimit.D() < 0 {
 		add("alerts.daily_active_limit must not be negative")
 	}
+	if _, err := ParseClock(c.Report.SendAt); err != nil {
+		add("report.send_at must be HH:MM (24-hour)")
+	}
+	if strings.ContainsAny(c.Report.ResendAPIKey, " \t\r\n") {
+		add("report.resend_api_key must not contain spaces")
+	}
+	if c.Report.From != "" {
+		if _, err := mail.ParseAddress(c.Report.From); err != nil {
+			add("report.from must be an e-mail address such as \"Parent Tracker <reports@example.com>\"")
+		}
+	}
+	if len(c.Report.Recipients) > MaxReportRecipients {
+		add("report.recipients lists more than %d addresses", MaxReportRecipients)
+	}
+	seenTo := map[string]bool{}
+	for _, r := range c.Report.Recipients {
+		if !IsBareEmail(r) {
+			add("report.recipients: %q is not an e-mail address", r)
+		}
+		if seenTo[strings.ToLower(r)] {
+			add("report.recipients lists %q twice", r)
+		}
+		seenTo[strings.ToLower(r)] = true
+	}
 	for _, cat := range c.Categories {
 		if cat.Name == "" {
 			add("a [[categories]] entry has no name")
@@ -355,6 +407,29 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("config: %s", strings.Join(problems, "; "))
 	}
 	return nil
+}
+
+// IsBareEmail reports whether s is a plain address such as name@example.com,
+// without a display name or angle brackets.
+func IsBareEmail(s string) bool {
+	a, err := mail.ParseAddress(s)
+	return err == nil && a.Address == s && a.Name == "" && strings.Contains(s[strings.LastIndex(s, "@")+1:], ".")
+}
+
+// ReportProblems lists what is missing before a report can be sent. Validate
+// does not require these, so the settings can be filled in one at a time.
+func (c *Config) ReportProblems() []string {
+	var out []string
+	if c.Report.ResendAPIKey == "" {
+		out = append(out, "report.resend_api_key is not set")
+	}
+	if c.Report.From == "" {
+		out = append(out, "report.from is not set")
+	}
+	if len(c.Report.Recipients) == 0 {
+		out = append(out, "report.recipients is empty")
+	}
+	return out
 }
 
 // IsLoopbackHost reports whether host is a loopback name or address.

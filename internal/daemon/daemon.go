@@ -29,6 +29,7 @@ import (
 	"github.com/samiferr/parent_tracker_ubuntu/internal/live"
 	"github.com/samiferr/parent_tracker_ubuntu/internal/model"
 	"github.com/samiferr/parent_tracker_ubuntu/internal/peercred"
+	"github.com/samiferr/parent_tracker_ubuntu/internal/report"
 	"github.com/samiferr/parent_tracker_ubuntu/internal/retention"
 	"github.com/samiferr/parent_tracker_ubuntu/internal/rollup"
 	"github.com/samiferr/parent_tracker_ubuntu/internal/server"
@@ -61,6 +62,8 @@ type Options struct {
 	Demo      bool
 	// Ready is called with the dashboard's address once it is listening.
 	Ready func(addr string)
+	// Mailer replaces the Resend API for the daily report (tests).
+	Mailer report.Mailer
 }
 
 // Daemon is a running parent-trackerd.
@@ -75,6 +78,7 @@ type Daemon struct {
 	agents *agentsrv.Server
 	alerts *alert.Engine
 	roll   *rollup.Rollup
+	report *report.Scheduler
 	src    collector.Source
 
 	reloadMu sync.Mutex
@@ -167,6 +171,7 @@ func (d *Daemon) Run(ctx context.Context) error {
 
 	d.roll = &rollup.Rollup{DB: d.db, Cfg: d.Config, Loc: d.o.Loc, Now: d.o.Now}
 	d.alerts = alert.New(&alert.Engine{DB: d.db, Cfg: d.Config, Loc: d.o.Loc, Now: d.o.Now, Log: d.log})
+	d.report = &report.Scheduler{DB: d.db, Cfg: d.Config, Loc: d.o.Loc, Now: d.o.Now, Log: d.log, Mailer: d.o.Mailer}
 
 	var healthFn func() tracker.Health
 	if !d.o.NoCollectors {
@@ -213,7 +218,7 @@ func (d *Daemon) Run(ctx context.Context) error {
 		d.addr.Store(ln.Addr().String())
 		srv := server.New(server.Deps{Cfg: d.Config, CfgPath: d.o.ConfigPath, DB: d.db, Hub: d.hub, Health: healthFn,
 			Reload: func() error { return d.reload("dashboard") }, Loc: d.o.Loc, Now: d.o.Now, Log: d.log,
-			Version: d.o.Version, Demo: d.o.Demo})
+			Version: d.o.Version, Demo: d.o.Demo, SendReport: d.report.Send})
 		httpSrv = &http.Server{Handler: srv.Handler(), ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 120 * time.Second,
 			ErrorLog: slog.NewLogLogger(d.log.Handler(), slog.LevelWarn)}
 		wg.Add(1)
@@ -244,6 +249,10 @@ func (d *Daemon) Run(ctx context.Context) error {
 		go func() { defer wg.Done(); pruner.Run(runCtx) }()
 		wg.Add(1)
 		go func() { defer wg.Done(); d.alerts.Run(runCtx) }()
+		if !d.o.Demo {
+			wg.Add(1)
+			go func() { defer wg.Done(); d.report.Run(runCtx) }()
+		}
 	}
 
 	for _, k := range cfg.NotCollected() {
@@ -367,6 +376,9 @@ func (d *Daemon) reload(origin string) error {
 	if d.agents != nil {
 		d.agents.Reconfigure(context.Background())
 	}
+	if d.report != nil {
+		d.report.Reset() // a fixed setting is tried at once, not after the retry wait
+	}
 	d.auditChanges(next, origin != "dashboard") // the dashboard audits its own changes
 	sdNotify("STATUS=" + statusLine(next))
 	d.log.Info("configuration reloaded")
@@ -392,15 +404,17 @@ func statusLine(cfg *config.Config) string {
 // Change is one audited configuration change.
 type Change struct{ Action, Detail string }
 
-var secret = map[string]bool{"alerts.ntfy_url": true, "alerts.webhook_url": true}
-
 // Snapshot flattens a configuration into comparable key/value pairs. The
-// password hash is reduced to a short fingerprint so a change is visible
-// without the hash itself being copied around.
+// password hash and the Resend API key are reduced to a short fingerprint so a
+// change is visible without the secret itself being copied around.
 func Snapshot(c *config.Config) map[string]string {
 	m := map[string]string{}
 	for _, k := range config.Keys() {
 		m[k], _ = c.Get(k)
+	}
+	if k := c.Report.ResendAPIKey; k != "" {
+		sum := sha256.Sum256([]byte(k))
+		m["report.resend_api_key"] = hex.EncodeToString(sum[:6])
 	}
 	sum := sha256.Sum256([]byte(c.Server.PasswordHash))
 	m["server.password"] = hex.EncodeToString(sum[:6])
@@ -461,7 +475,7 @@ func DiffSnapshots(old, cur map[string]string) []Change {
 			action = model.AuditCollectorDisabled
 		}
 		detail := fmt.Sprintf("%s: %s -> %s", k, va, vb)
-		if secret[k] {
+		if config.IsSecret(k) {
 			detail = k + " changed (value not logged)"
 		}
 		out = append(out, Change{action, detail})

@@ -52,6 +52,7 @@
 | SEC-22 | No secrets (SMTP passwords, tokens) in world-readable files or logs. |
 | SEC-23 | Logs redact window titles / URLs when the corresponding collector is privacy-restricted. |
 | SEC-24 | Exports are generated with restrictive permissions and a clear warning when moved. |
+| SEC-25 | The daily report e-mail is **off by default** and is the only feature that sends recorded data off the machine on a schedule. It carries a summary only (time totals, application names and categories, alerts, tracking gaps; never window titles), goes through Resend to the addresses the parent lists, and every send is written to `audit_log`. The Resend API key is a secret under SEC-22: never returned by the dashboard, printed by `config list`/`config get`, or written to the audit log or its stored snapshot. |
 
 ## 6.5 Tamper resistance & tamper evidence
 

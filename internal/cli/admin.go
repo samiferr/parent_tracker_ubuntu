@@ -100,6 +100,9 @@ func (a *App) cmdUsers(args []string) int {
 
 var hashLine = regexp.MustCompile(`(?m)^(password_hash = ).*$`)
 
+// apiKeyLine matches a set (non-empty) Resend API key.
+var apiKeyLine = regexp.MustCompile(`(?m)^(resend_api_key = )(?:'[^'\n]+'|"[^"\n]+")$`)
+
 func (a *App) cmdConfig(args []string) int {
 	fs, cfgPath := a.newFlags("config")
 	pos, err := parse(fs, args)
@@ -120,6 +123,7 @@ func (a *App) cmdConfig(args []string) int {
 			return a.errorf("%v", err)
 		}
 		b = hashLine.ReplaceAll(b, []byte(`${1}"(set; not shown)"`))
+		b = apiKeyLine.ReplaceAll(b, []byte(`${1}"(set; not shown)"`))
 		a.Stdout.Write(b)
 		return 0
 	case "get":
@@ -129,6 +133,9 @@ func (a *App) cmdConfig(args []string) int {
 		v, err := cfg.Get(pos[1])
 		if err != nil {
 			return a.errorf("%v", err)
+		}
+		if pos[1] == "report.resend_api_key" && v != "" {
+			v = "(set; not shown)"
 		}
 		a.println(v)
 		return 0
@@ -148,6 +155,11 @@ func (a *App) cmdConfig(args []string) int {
 		a.printf("%s set.\n%s\n", pos[1], reloadHint)
 		if config.IsNotCollected(pos[1]) && pos[2] != "false" {
 			a.println("Note: this release does not collect that yet, so nothing will be recorded for it.")
+		}
+		if strings.HasPrefix(pos[1], "report.") {
+			if p := cfg.ReportProblems(); cfg.Report.Enabled && len(p) > 0 {
+				a.printf("Note: the daily report is on but cannot be sent yet: %s.\n", strings.Join(p, "; "))
+			}
 		}
 		if pos[1] == "server.listen" {
 			a.println("A new listen address needs a full restart: sudo systemctl restart parent-trackerd")

@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -143,7 +144,8 @@ func TestSettableKeysMatchTheUserGuide(t *testing.T) {
 		"collectors.window_title", "collectors.web", "collectors.web_full_url", "collectors.screenshots",
 		"alerts.enabled", "alerts.channel", "alerts.ntfy_url", "alerts.webhook_url", "alerts.daily_active_limit",
 		"alerts.bedtime", "retention.window_samples", "retention.intervals", "retention.app_usage",
-		"retention.hourly_usage", "retention.prune_interval",
+		"retention.hourly_usage", "retention.prune_interval", "report.enabled", "report.send_at",
+		"report.resend_api_key", "report.from", "report.recipients",
 	}
 	got := map[string]bool{}
 	for _, k := range Settable() {
@@ -208,5 +210,85 @@ func TestUnknownKeysAreNamed(t *testing.T) {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("error %q should contain %q", err, want)
 		}
+	}
+}
+
+func TestReportSettings(t *testing.T) {
+	c := Default()
+	if c.Report.Enabled || c.Report.SendAt != "07:00" || len(c.Report.Recipients) != 0 {
+		t.Fatalf("report defaults = %+v", c.Report)
+	}
+	if p := c.ReportProblems(); len(p) != 3 {
+		t.Fatalf("problems = %v", p)
+	}
+	// enabling before the rest is filled in is allowed, so the settings can be
+	// entered one at a time
+	if err := c.Set("report.enabled", "true"); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.Set("report.recipients", "mum@example.com, dad@example.org\nGran@Example.net"); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := c.Get("report.recipients"); got != "mum@example.com,dad@example.org,Gran@Example.net" {
+		t.Fatalf("recipients = %q", got)
+	}
+	if err := c.Set("report.from", "Parent Tracker <reports@example.com>"); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.Set("report.resend_api_key", " re_123abc "); err != nil || c.Report.ResendAPIKey != "re_123abc" {
+		t.Fatalf("key = %q, %v", c.Report.ResendAPIKey, err)
+	}
+	if p := c.ReportProblems(); len(p) != 0 {
+		t.Fatalf("problems = %v", p)
+	}
+	for key, bad := range map[string]string{
+		"report.send_at":        "7am",
+		"report.recipients":     "mum@example.com, not-an-address",
+		"report.from":           "nobody",
+		"report.resend_api_key": "re_1 23",
+	} {
+		before := c.Clone()
+		if err := c.Set(key, bad); err == nil {
+			t.Errorf("%s = %q should be rejected", key, bad)
+		}
+		if c.Report.SendAt != before.Report.SendAt || len(c.Report.Recipients) != len(before.Report.Recipients) {
+			t.Fatal("a rejected value must not change the config")
+		}
+	}
+	if err := c.Set("report.recipients", "a@example.com,A@example.com"); err == nil || !strings.Contains(err.Error(), "twice") {
+		t.Fatalf("duplicate: %v", err)
+	}
+	if err := c.Set("report.recipients", "Mum <mum@example.com>"); err == nil {
+		t.Fatal("a display name is not a bare address")
+	}
+	many := make([]string, MaxReportRecipients+1)
+	for i := range many {
+		many[i] = fmt.Sprintf("p%d@example.com", i)
+	}
+	if err := c.Set("report.recipients", strings.Join(many, ",")); err == nil {
+		t.Fatal("too many recipients must be rejected")
+	}
+	if !IsSecret("report.resend_api_key") || IsSecret("report.from") {
+		t.Fatal("the API key is a secret")
+	}
+
+	// the list survives a save and a load, and a clone does not share it
+	p := filepath.Join(t.TempDir(), "config.toml")
+	if err := c.Save(p); err != nil {
+		t.Fatal(err)
+	}
+	back, err := Load(p)
+	if err != nil || len(back.Report.Recipients) != 3 || back.Report.ResendAPIKey != "re_123abc" || !back.Report.Enabled {
+		t.Fatalf("loaded = %+v, %v", back.Report, err)
+	}
+	cl := back.Clone()
+	cl.Report.Recipients[0] = "x@example.com"
+	if back.Report.Recipients[0] == "x@example.com" {
+		t.Fatal("Clone must copy the recipients")
+	}
+	// a file without a [report] section keeps the defaults
+	old, err := Parse([]byte("monitored_users = []\n"))
+	if err != nil || old.Report.SendAt != "07:00" || old.Report.Recipients == nil {
+		t.Fatalf("old file = %+v, %v", old.Report, err)
 	}
 }

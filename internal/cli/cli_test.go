@@ -22,6 +22,7 @@ import (
 	"github.com/samiferr/parent_tracker_ubuntu/internal/control"
 	"github.com/samiferr/parent_tracker_ubuntu/internal/model"
 	"github.com/samiferr/parent_tracker_ubuntu/internal/peercred"
+	"github.com/samiferr/parent_tracker_ubuntu/internal/report"
 	"github.com/samiferr/parent_tracker_ubuntu/internal/storage"
 	"github.com/samiferr/parent_tracker_ubuntu/internal/tracker"
 )
@@ -818,5 +819,64 @@ func TestSetupWithAnUnreadableConfig(t *testing.T) {
 	}
 	if c, err := config.Load(r.cfg); err != nil || len(c.MonitoredUsers) != 1 {
 		t.Fatalf("the new configuration should load: %v %+v", err, c)
+	}
+}
+
+type fakeMailer struct {
+	sent []report.Email
+	err  error
+}
+
+func (m *fakeMailer) Send(_ context.Context, key, _ string, e report.Email) (string, error) {
+	if m.err != nil {
+		return "", m.err
+	}
+	if key != "re_cli_KEY" {
+		return "", fmt.Errorf("wrong key")
+	}
+	m.sent = append(m.sent, e)
+	return "id", nil
+}
+
+func TestReportEmail(t *testing.T) {
+	r := newRig(t)
+	c := r.configured("ilyes")
+	db := r.db(c)
+	db.UpsertUser(1002, "ilyes", true, 1)
+	m := &fakeMailer{}
+	r.app.Mailer = m
+
+	if rc := r.run("report", "email"); rc == 0 || !strings.Contains(r.errb.String(), "report.resend_api_key is not set") {
+		t.Fatalf("incomplete settings: %d %s", rc, r.errb)
+	}
+	r.mustRun("config", "set", "report.resend_api_key", "re_cli_KEY")
+	r.mustRun("config", "set", "report.from", "Parent Tracker <reports@example.com>")
+	out := r.mustRun("config", "set", "report.enabled", "true")
+	if !strings.Contains(out, "cannot be sent yet: report.recipients is empty") {
+		t.Fatalf("enable hint: %s", out)
+	}
+	r.mustRun("config", "set", "report.recipients", "mum@example.com,dad@example.com")
+
+	// the key is never printed
+	if out := r.mustRun("config", "get", "report.resend_api_key"); strings.Contains(out, "re_cli_KEY") || !strings.Contains(out, "not shown") {
+		t.Fatalf("get = %q", out)
+	}
+	if list := r.mustRun("config", "list"); strings.Contains(list, "re_cli_KEY") || !strings.Contains(list, "mum@example.com") {
+		t.Fatalf("list = %s", list)
+	}
+
+	if out := r.mustRun("report", "email", "--preview"); !strings.Contains(out, "Subject: Daily report, Thu 8 Oct: ilyes 0m") || !strings.Contains(out, "== ilyes ==") || len(m.sent) != 0 {
+		t.Fatalf("preview = %s", out)
+	}
+	out = r.mustRun("report", "email", "--date", "2026-10-09")
+	if !strings.Contains(out, "sent to 2 recipients") || len(m.sent) != 1 || len(m.sent[0].To) != 2 || !strings.Contains(m.sent[0].Subject, "Fri 9 Oct") {
+		t.Fatalf("send = %s %+v", out, m.sent)
+	}
+	if rc := r.run("report", "email", "--date", "9/10"); rc == 0 {
+		t.Fatal("a bad date is an error")
+	}
+	m.err = fmt.Errorf("rejected by Resend (403): domain not verified")
+	if rc := r.run("report", "email"); rc == 0 || !strings.Contains(r.errb.String(), "domain not verified") {
+		t.Fatalf("failure = %s", r.errb)
 	}
 }

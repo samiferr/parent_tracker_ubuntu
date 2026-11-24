@@ -149,18 +149,18 @@ tools/ui-check/            optional headless-browser checks of the dashboard
 | FR-5.x | Screenshots | Not started | key exists, never collected |
 | FR-6.1–6.4 | Dashboard, summaries, timeline, auth, loopback | Done | `internal/server`, `internal/server/web` |
 | FR-6.5 | CSV/PDF export | Partial | CSV from `report --format csv`, JSON from `export`; **no PDF** |
-| FR-6.6 | Daily digest | Not started | |
+| FR-6.6 | Daily digest | Done | `internal/report`: a daily report e-mail through the Resend API to a list of recipients, sent after `report.send_at` for the previous day; configured in `[report]`, the dashboard settings, `report email` in the CLI. Sending to the real Resend API is **untested** (tested against a fake server) |
 | FR-6.7 | Budgets | Not started | |
 | FR-6.8–6.15 | Real-time dashboard | Done | `internal/live`, SSE, polling fallback, Live / Stale / Reconnecting |
 | FR-6.16 | Tab badge | Partial | the tab title shows the state; no favicon badge |
 | FR-6.20–6.28 | Per-hour history | Done | `hourly_*` tables, `GET /api/hourly`, `report --by hour`, bedtime marking |
 | FR-6.29 | Typical-week view | Partial | the heatmap has a "typical day" row; no per-weekday view |
 | FR-7.1 | Alert conditions | Partial | daily limit, bedtime, tracking gap, sensor loss, low disk. No "app X used" or "new device" rule |
-| FR-7.2 | Alert channels | Partial | desktop, ntfy, webhook; **no email** |
+| FR-7.2 | Alert channels | Partial | desktop, ntfy, webhook; **no e-mail alerts** (the daily report is e-mailed, alerts are not) |
 | FR-7.3 | Rate limiting | Done | de-duplicated within the hour |
 | FR-7.4 | Weekly digest | Not started | |
 | FR-8.1–8.2 | CLI, reload | Done | `internal/cli`, SIGHUP |
-| FR-8.3 | Dashboard settings | Partial | a safe subset (recording, live view, alerts, retention). Users, listen address, LAN access and the password are CLI-only on purpose |
+| FR-8.3 | Dashboard settings | Partial | a safe subset (recording, live view, alerts, daily report e-mail, retention). Users, listen address, LAN access and the password are CLI-only on purpose |
 | FR-8.4 | Safe defaults, never silently track a new user | Done | |
 | FR-8.5 | `doctor` | Done | OS, systemd, config, database, service, logind, per-session provider |
 | FR-8.6 | Uninstall | Done | `apt remove` keeps data, `apt purge` deletes it (tested in a scratch root) |

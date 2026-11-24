@@ -22,8 +22,8 @@ foreground app), the systemd units and the dconf enablement are not yet
 confirmed working there: they were tested against fakes and mocks, because no
 GNOME Shell or full systemd runs in the development environment.
 
-Not built yet: browser-history import, screenshots, device events, a daily
-digest, e-mail alerts, PDF export, time-limit enforcement, encryption at rest.
+Not built yet: browser-history import, screenshots, device events, e-mail
+alerts, PDF export, time-limit enforcement, encryption at rest.
 Turning on a collector that does not exist yet records nothing, and says so.
 
 Requirement-by-requirement status, with what was and was not verified:
@@ -50,6 +50,11 @@ Requirement-by-requirement status, with what was and was not verified:
   data (including the hourly breakdown) without root.
 - Alerts via ntfy / webhook / desktop (daily limit, bedtime, tracking gaps, a lost
   app sensor, low disk). Browser-history import is planned, not built.
+- An optional **daily report e-mail** sent through the [Resend](https://resend.com)
+  API to any number of addresses (up to 50): yesterday's screen time, top apps,
+  categories, alerts and tracking gaps. Off by default; set it up in the
+  dashboard's Settings or with `parent-tracker config set report.*`. See
+  [User guide §9](docs/USER-GUIDE.md#daily-report-e-mail).
 - An authenticated, local web dashboard built with the **Lumen design system**
   ([docs/12](docs/12-design-system-lumen.md)), fully self-contained (no CDN, no
   web fonts, no telemetry).
