@@ -66,6 +66,19 @@ daily_active_limit = "0s"   # for example "3h"; 0s means no limit
 bedtime = ""                # local HH:MM, for example "21:00"; empty means none
 notify_on_service_stop = true
 
+# Daily report e-mail, sent through Resend (https://resend.com). Off by default.
+# After send_at (local time) the previous day's report goes to every recipient.
+# The API key is never shown by `config list` or the dashboard.
+#   sudo parent-tracker config set report.resend_api_key re_xxxxxxxx
+#   sudo parent-tracker config set report.recipients 'mum@example.com,dad@example.com'
+#   sudo parent-tracker report email      # send yesterday's report now, to test
+[report]
+enabled = false
+send_at = "07:00"
+resend_api_key = ""
+from = ""                   # e.g. "Parent Tracker <reports@example.com>"; domain verified in Resend
+recipients = []             # e.g. ["mum@example.com", "dad@example.com"]
+
 # Application categories. Patterns are globs matched against the application
 # id. Replace or extend these; the first matching category wins.
 [[categories]]

@@ -132,6 +132,7 @@ const (
 	AuditClockSkew         = "clock_skew"
 	AuditDisclosureAck     = "disclosure_acknowledged"
 	AuditSetup             = "setup"
+	AuditReportSent        = "report_sent"
 	// AuditError and AuditWarning are what the service itself logged as an
 	// error or a warning (a failed rollup, a socket that stopped, ...).
 	AuditError   = "error"

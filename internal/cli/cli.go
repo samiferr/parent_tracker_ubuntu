@@ -26,6 +26,7 @@ import (
 	"github.com/samiferr/parent_tracker_ubuntu/internal/collector"
 	"github.com/samiferr/parent_tracker_ubuntu/internal/config"
 	"github.com/samiferr/parent_tracker_ubuntu/internal/model"
+	"github.com/samiferr/parent_tracker_ubuntu/internal/report"
 	"github.com/samiferr/parent_tracker_ubuntu/internal/storage"
 	"github.com/samiferr/parent_tracker_ubuntu/internal/view"
 )
@@ -63,6 +64,8 @@ type App struct {
 	Root         string // prefix for system paths such as /usr/share (tests)
 	DataDir      string // data directory for a configuration created from the defaults (tests; empty means the built-in default)
 	Sessions     func(ctx context.Context) ([]collector.SessionInfo, error)
+	// Mailer sends the report e-mail; nil uses the Resend API.
+	Mailer report.Mailer
 
 	in *bufio.Reader
 }
@@ -138,7 +141,7 @@ func commands() []command {
 		{"doctor", "diagnose OS support, session types, the app sensor and permissions", (*App).cmdDoctor},
 		{"users", "list, add or remove monitored users", (*App).cmdUsers},
 		{"config", "list, get or set settings", (*App).cmdConfig},
-		{"report", "print a usage report, by day or by hour", (*App).cmdReport},
+		{"report", "print a usage report, by day or by hour, or e-mail the daily report", (*App).cmdReport},
 		{"export", "write everything that is recorded as JSON", (*App).cmdExport},
 		{"delete", "permanently delete recorded data", (*App).cmdDelete},
 		{"self", "show what is recorded about you (no root needed)", (*App).cmdSelf},

@@ -11,8 +11,8 @@ locked time and foreground applications, by the hour.
 
 > **Status: first release, not yet run on a real desktop.** The commands,
 > screens and settings below exist and are tested, except where a section says
-> **Not built yet** (browser history, screenshots, device events, daily digest,
-> e-mail alerts, PDF export, time limits). The GNOME Shell extension (app
+> **Not built yet** (browser history, screenshots, device events, e-mail
+> alerts, PDF export, time limits). The GNOME Shell extension (app
 > tracking on Wayland), the systemd units and the package have been tested only
 > against fakes, so expect to run `parent-tracker doctor` after installing and to
 > report what it finds. See the [implementation status](11-implementation-status.md).
@@ -35,6 +35,7 @@ locked time and foreground applications, by the hour.
 7. [Command-line reference](#7-command-line-reference)
 8. [Configuration reference](#8-configuration-reference)
 9. [Alerts](#9-alerts)
+   - [Daily report e-mail](#daily-report-e-mail)
 10. [Browser history](#10-browser-history)
 11. [The child's self-view](#11-the-childs-self-view)
 12. [Reports and data export](#12-reports-and-data-export)
@@ -77,8 +78,10 @@ Everything is stored **locally** in a SQLite database. There is no cloud, no
 account, and no telemetry.
 
 It does **not**: take screenshots, read messages, record keystrokes, or filter
-network traffic (all deferred or out of scope). Browser history, daily digests,
-e-mail alerts, PDF export and time limits are planned for later phases.
+network traffic (all deferred or out of scope). Browser history, e-mail alerts,
+PDF export and time limits are planned for later phases. A **daily report
+e-mail** (through Resend) is available and off by default; see
+[section 9](#daily-report-e-mail).
 
 ## 2. Requirements and capabilities
 
@@ -541,6 +544,18 @@ parent-tracker report --user ilyes --by hour --from 2026-10-01 --to 2026-10-07 -
 Flags: `--user`, `--from` (YYYY-MM-DD), `--to`, `--format text|csv`, and
 `--by day|hour` (default `day`) with `--date` (YYYY-MM-DD, with `--by hour`).
 
+`parent-tracker report email` sends the [daily report e-mail](#daily-report-e-mail)
+now, for yesterday or for `--date YYYY-MM-DD`, to every address in
+`report.recipients`. It works whether or not `report.enabled` is on, so you can
+try the settings first, and needs `sudo` (the API key is in the root-only config
+file). `--preview` prints the plain-text version instead of sending it.
+
+```bash
+sudo parent-tracker report email --preview
+sudo parent-tracker report email
+sudo parent-tracker report email --date 2026-10-09
+```
+
 With `--by hour` there is one line per hour that has data, in local time, showing
 active / idle / locked minutes, any tracking-gap minutes and the top app, then
 the day's total:
@@ -678,6 +693,18 @@ You can edit the file directly (then `systemctl reload parent-trackerd`), or use
 | `bedtime` | `""` | Local `HH:MM`; usage after it triggers an alert. Empty disables. |
 | `notify_on_service_stop` | `true` | Alert on gaps / unclean stops. |
 
+### `[report]` — the daily report e-mail
+
+| Key | Default | Meaning |
+| --- | --- | --- |
+| `enabled` | `false` | E-mail a report of the previous day every day. |
+| `send_at` | `07:00` | Local `HH:MM` after which yesterday's report is sent. |
+| `resend_api_key` | — | Your [Resend](https://resend.com) API key (`re_…`). Never shown by `config list`/`config get`, the dashboard or the audit log. |
+| `from` | — | Sender, such as `"Parent Tracker <reports@example.com>"`. Its domain must be verified in Resend. |
+| `recipients` | `[]` | Who gets the report, up to 50 addresses. Everyone gets the same e-mail. |
+
+See [Daily report e-mail](#daily-report-e-mail).
+
 ### `[[categories]]`
 Maps applications to human categories using glob patterns. Defaults cover games,
 school, social, video and browser. See
@@ -693,7 +720,9 @@ Settable keys: `log_level`, `sample_interval`,
 `collectors.screenshots`, `alerts.enabled`, `alerts.channel`, `alerts.ntfy_url`,
 `alerts.webhook_url`, `alerts.daily_active_limit`, `alerts.bedtime`,
 `retention.window_samples`, `retention.intervals`, `retention.app_usage`,
-`retention.hourly_usage`, `retention.prune_interval`.
+`retention.hourly_usage`, `retention.prune_interval`, `report.enabled`,
+`report.send_at`, `report.resend_api_key`, `report.from`, `report.recipients`
+(a comma-separated list).
 
 ```bash
 sudo parent-tracker config set sample_interval 10s
@@ -750,6 +779,50 @@ the **Alerts & tracking gaps** panel regardless of delivery success.
 Alerts are separate from the live view: alerts *tell* you when something
 crosses a rule, while the live view lets you *look* whenever you choose. The
 `bedtime` setting is also used by the hourly history to outline late-night hours.
+
+### Daily report e-mail
+
+Once a day the service can e-mail a summary of the **previous day** to one or
+more addresses, sent through [Resend](https://resend.com). For each monitored
+user it shows active, idle and locked time (and how that compares with the week
+before), first and last activity, active minutes by hour, the top applications
+and categories, and that day's alerts and tracking gaps. It never contains
+window titles, screen content, keystrokes or messages.
+
+1. Create a Resend account, **verify a domain** you own (Resend → Domains), and
+   create an API key with *Sending access* (Resend → API Keys). Without a
+   verified domain Resend only sends from `onboarding@resend.dev` to your own
+   account's address, which is enough for a first test.
+2. Set it up in the dashboard (**Settings → Daily report e-mail**) or on the
+   command line:
+
+   ```bash
+   sudo parent-tracker config set report.resend_api_key re_xxxxxxxx
+   sudo parent-tracker config set report.from 'Parent Tracker <reports@example.com>'
+   sudo parent-tracker config set report.recipients 'mum@example.com,dad@example.com'
+   sudo parent-tracker config set report.send_at 07:00
+   sudo parent-tracker report email          # send yesterday's report now, to check
+   sudo parent-tracker config set report.enabled true
+   sudo systemctl reload parent-trackerd
+   ```
+
+   In the dashboard, **Send a test report now** e-mails today's report so far.
+
+How it is sent:
+
+- After `send_at` (local time) the service sends yesterday's report once. If
+  the PC was off or asleep at that time, it is sent as soon as the service runs
+  again that day; it is never sent twice for the same day, even across a
+  restart.
+- If Resend cannot be reached, the service retries every 15 minutes (up to 8
+  times). If Resend refuses the message (wrong key, unverified sender domain,
+  bad address), it stops for that day; fix the setting and the next reload tries
+  again. Failures appear in the **Audit log** as service warnings, and every
+  report sent is recorded there as *Daily report e-mailed*.
+- Every recipient gets the same e-mail, so they can see each other's addresses.
+
+The report leaves the PC: it passes through Resend's servers and your
+recipients' mail providers. See [Privacy and legal](#18-privacy-and-legal).
 
 ## 10. Browser history
 
@@ -1010,7 +1083,9 @@ sudo systemctl reload parent-trackerd
   them with `parent-tracker self`. There is no hidden or covert mode.
 - Do **not** use it to monitor adults, guests, or devices you do not control.
 - Data stays on the machine. There is no telemetry and no cloud. The only
-  outbound network traffic is to an alert channel you explicitly configure.
+  outbound network traffic is to an alert channel you explicitly configure, and
+  — if you turn it on — the daily report e-mail, which sends a summary (time
+  totals, application names, alerts) through Resend to the addresses you list.
 - Sensitive collection (window titles, browser history, full URLs) is off by
   default. Keep retention as short as is useful.
 - The live view and the hourly history show **only what is already recorded**

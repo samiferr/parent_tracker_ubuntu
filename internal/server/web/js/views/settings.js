@@ -3,9 +3,14 @@ import { api } from '../api.js';
 import { useFetch } from '../hooks.js';
 import { Loading, ErrorBox } from '../components.js';
 
-const { Drawer, Switch, TextField, Dropdown, Button, InlineAlert, Disclosure } = L;
+const { Drawer, Switch, TextField, TextArea, Dropdown, Button, InlineAlert, Disclosure } = L;
 
 const INTERVALS = ['1s', '2s', '5s', '10s', '30s', '1m'];
+// The form keeps the recipients as text (one address per line); the API sends
+// and returns a list.
+const toForm = (values) => ({ ...values, 'report.recipients': (values['report.recipients'] || []).join('\n') });
+const splitList = (text) => text.split(/[\s,;]+/).filter(Boolean);
+
 const CHANNELS = [{ key: 'none', label: 'None' }, { key: 'desktop', label: 'Desktop notification' }, { key: 'ntfy', label: 'ntfy' }, { key: 'webhook', label: 'Webhook' }];
 
 // Settings the dashboard may change (FR-8.3). Who is monitored, the listen
@@ -17,17 +22,26 @@ export function SettingsDrawer({ isOpen, onClose, editable }) {
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState(null);
   const [saved, setSaved] = useState(false);
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState(null);
 
-  useEffect(() => { if (data) { setForm({ ...data.values }); setSaved(false); setSaveError(null); } }, [data]);
-  useEffect(() => { if (!isOpen) { setSaved(false); setSaveError(null); } }, [isOpen]);
+  useEffect(() => { if (data) { setForm(toForm(data.values)); setSaved(false); setSaveError(null); } }, [data]);
+  useEffect(() => { if (!isOpen) { setSaved(false); setSaveError(null); setTestResult(null); } }, [isOpen]);
 
+  const initial = data ? toForm(data.values) : null;
   const set = (k) => (v) => { setForm((f) => ({ ...f, [k]: v })); setSaved(false); };
-  const dirty = form && data && Object.keys(form).some((k) => form[k] !== data.values[k]);
+  const dirty = form && initial && Object.keys(form).some((k) => (k === 'report.recipients'
+    ? splitList(form[k]).join(',') !== splitList(initial[k]).join(',')
+    : form[k] !== initial[k]));
 
   async function save() {
     const changed = {};
     Object.keys(form).forEach((k) => {
-      if (form[k] === data.values[k]) return;
+      if (k === 'report.recipients') {
+        if (splitList(form[k]).join(',') !== splitList(initial[k]).join(',')) changed[k] = splitList(form[k]);
+        return;
+      }
+      if (form[k] === initial[k]) return;
       changed[k] = k === 'server.live_max_clients' ? Number(form[k]) : form[k];
     });
     setSaving(true); setSaveError(null);
@@ -38,8 +52,19 @@ export function SettingsDrawer({ isOpen, onClose, editable }) {
     } catch (e) { setSaveError(e); } finally { setSaving(false); }
   }
 
+  async function sendTest() {
+    setTesting(true); setTestResult(null);
+    try {
+      const r = await api.post('/api/report/test', {});
+      setTestResult({ ok: true, title: `Test report sent to ${r.sent_to} ${r.sent_to === 1 ? 'address' : 'addresses'}`, text: 'It covers today so far. Check the inbox (and the spam folder).' });
+      reload();
+    } catch (e) { setTestResult({ ok: false, title: e.message, text: e.hint || null }); } finally { setTesting(false); }
+  }
+
   const intervals = form && INTERVALS.includes(form.sample_interval) ? INTERVALS : form ? [...INTERVALS, form.sample_interval] : INTERVALS;
   const ro = (data && data.read_only) || {};
+  const rep = (data && data.report) || {};
+  const keySet = !!(data && data.secrets_set && data.secrets_set['report.resend_api_key']);
   const footer = editable
     ? h(F, null, h(Button, { variant: 'secondary', onPress: onClose }, 'Close'), h(Button, { variant: 'accent', isDisabled: !dirty || saving, onPress: save }, saving ? 'Saving…' : 'Save settings'))
     : h(Button, { variant: 'secondary', onPress: onClose }, 'Close');
@@ -70,6 +95,21 @@ export function SettingsDrawer({ isOpen, onClose, editable }) {
           form['alerts.channel'] === 'webhook' ? h(TextField, { label: 'Webhook address', value: form['alerts.webhook_url'], onChange: set('alerts.webhook_url'), isDisabled: !editable }) : null,
           h(TextField, { label: 'Daily active-time limit', value: form['alerts.daily_active_limit'], onChange: set('alerts.daily_active_limit'), description: 'For example 3h. Use 0s for no limit.', isDisabled: !editable, width: '10rem' }),
           h(TextField, { label: 'Bedtime', value: form['alerts.bedtime'], onChange: set('alerts.bedtime'), description: 'Local time such as 21:00. Leave empty for none.', isDisabled: !editable, width: '10rem' })),
+        h('div', { className: 'form__group' },
+          h('h3', { className: 'title-m heading' }, 'Daily report e-mail'),
+          h('p', { className: 'muted body-s' }, 'A summary of the previous day (screen time, top applications, alerts) e-mailed through Resend. No screen content or window titles are included.'),
+          h('div', { className: 'form__switch' }, h(Switch, { isSelected: form['report.enabled'], onChange: set('report.enabled'), isDisabled: !editable }, 'E-mail a daily report')),
+          h(TextField, { label: 'Send at', value: form['report.send_at'], onChange: set('report.send_at'), description: `Local time${rep.timezone ? ' (' + rep.timezone + ')' : ''}, such as 07:00. The report covers the day before.`, isDisabled: !editable, width: '10rem' }),
+          h(TextField, { label: 'Resend API key', type: 'password', autoComplete: 'off', value: form['report.resend_api_key'], onChange: set('report.resend_api_key'),
+            placeholder: keySet ? 'Saved (leave empty to keep it)' : 're_…', description: 'Create a key with "Sending access" at resend.com, under API Keys. It is stored in the config file, readable by root only.', isDisabled: !editable }),
+          h(TextField, { label: 'Sender', value: form['report.from'], onChange: set('report.from'), placeholder: 'Parent Tracker <reports@example.com>', description: 'The address the report comes from. Its domain must be verified in Resend.', isDisabled: !editable }),
+          h(TextArea, { label: 'Send to', value: form['report.recipients'], onChange: set('report.recipients'), rows: 3, placeholder: 'parent@example.com', description: `One address per line, up to ${rep.max_to || 50}. Everyone listed gets the same e-mail.`, isDisabled: !editable }),
+          form['report.enabled'] && !dirty && rep.problems && rep.problems.length ? h(InlineAlert, { variant: 'notice', title: 'The report cannot be sent yet' }, rep.problems.join('; ') + '.') : null,
+          rep.last_sent ? h('p', { className: 'muted body-s' }, `Last scheduled report: ${rep.last_sent}.`) : null,
+          testResult ? h(InlineAlert, { variant: testResult.ok ? 'positive' : 'negative', title: testResult.title }, testResult.text) : null,
+          editable && rep.can_test ? h('div', null, h(Button, { variant: 'secondary', isDisabled: dirty || testing || (rep.problems && rep.problems.length > 0), onPress: sendTest },
+            testing ? 'Sending…' : 'Send a test report now')) : null,
+          editable && rep.can_test && dirty ? h('p', { className: 'muted body-s' }, 'Save the settings first to send a test report.') : null),
         h('div', { className: 'form__group' },
           h('h3', { className: 'title-m heading' }, 'How long data is kept'),
           [['retention.window_samples', 'Application samples'], ['retention.intervals', 'Activity intervals'], ['retention.hourly_usage', 'Hour-by-hour history'], ['retention.app_usage', 'Daily application totals']].map(([k, label]) =>

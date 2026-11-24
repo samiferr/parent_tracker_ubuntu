@@ -6,6 +6,9 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
+
+	"github.com/samiferr/parent_tracker_ubuntu/internal/aggregate"
 
 	"github.com/samiferr/parent_tracker_ubuntu/internal/config"
 	"github.com/samiferr/parent_tracker_ubuntu/internal/model"
@@ -30,11 +33,12 @@ var editable = map[string]string{
 	"retention.intervals":       "duration",
 	"retention.app_usage":       "duration",
 	"retention.hourly_usage":    "duration",
+	"report.enabled":            "bool",
+	"report.send_at":            "string",
+	"report.from":               "string",
+	"report.recipients":         "list",
+	"report.resend_api_key":     "secret",
 }
-
-// secretKeys hold private topics or URLs: their values are never written to the
-// audit log (SEC-22).
-var secretKeys = map[string]bool{"alerts.ntfy_url": true, "alerts.webhook_url": true}
 
 func (s *Server) settingsBody() map[string]any {
 	cfg := s.d.Cfg()
@@ -47,6 +51,11 @@ func (s *Server) settingsBody() map[string]any {
 		case "int":
 			n, _ := strconv.Atoi(raw)
 			vals[k] = n
+		case "list":
+			vals[k] = config.SplitList(raw)
+		case "secret":
+			// never sent back: the page only learns whether one is set
+			vals[k] = ""
 		default:
 			vals[k] = raw
 		}
@@ -54,6 +63,16 @@ func (s *Server) settingsBody() map[string]any {
 	return map[string]any{
 		"values":   vals,
 		"editable": s.d.CfgPath != "",
+		"secrets_set": map[string]bool{
+			"report.resend_api_key": cfg.Report.ResendAPIKey != "",
+		},
+		"report": map[string]any{
+			"problems":  orEmpty(cfg.ReportProblems()),
+			"can_test":  s.d.SendReport != nil,
+			"last_sent": s.lastSentDay(),
+			"timezone":  zoneName(s.d.Loc),
+			"max_to":    config.MaxReportRecipients,
+		},
 		"read_only": map[string]any{
 			"monitored_users":  cfg.MonitoredUsers,
 			"server.listen":    cfg.Server.Listen,
@@ -92,6 +111,9 @@ func (s *Server) handleSettingsPut(w http.ResponseWriter, r *http.Request) {
 			apiError(w, http.StatusBadRequest, fmt.Sprintf("%s has the wrong type of value.", k), "")
 			return
 		}
+		if typ == "secret" && text == "" { // empty keeps the saved secret
+			continue
+		}
 		old, _ := next.Get(k)
 		if err := next.Set(k, text); err != nil {
 			apiError(w, http.StatusBadRequest, err.Error(), "")
@@ -118,7 +140,7 @@ func (s *Server) handleSettingsPut(w http.ResponseWriter, r *http.Request) {
 	}
 	var names []string
 	for _, k := range changed {
-		if secretKeys[k] {
+		if config.IsSecret(k) {
 			names = append(names, k+" (value not logged)")
 			continue
 		}
@@ -137,7 +159,86 @@ func asText(v any, typ string) (string, bool) {
 	case "int":
 		f, ok := v.(float64)
 		return strconv.Itoa(int(f)), ok && f == float64(int(f))
+	case "list":
+		if s, ok := v.(string); ok {
+			return s, true
+		}
+		items, ok := v.([]any)
+		if !ok {
+			return "", false
+		}
+		parts := make([]string, 0, len(items))
+		for _, it := range items {
+			s, ok := it.(string)
+			if !ok {
+				return "", false
+			}
+			parts = append(parts, s)
+		}
+		return strings.Join(parts, ","), true
+	case "secret":
+		if v == nil {
+			return "", true
+		}
 	}
 	s, ok := v.(string)
 	return s, ok
+}
+
+func orEmpty(s []string) []string {
+	if s == nil {
+		return []string{}
+	}
+	return s
+}
+
+func (s *Server) lastSentDay() string {
+	v, _, _ := s.d.DB.GetState("report_last_day")
+	return v
+}
+
+// handleReportTest e-mails a report now, to check the Resend settings. It
+// covers today so far unless a date is given, and does not count as the
+// scheduled report.
+func (s *Server) handleReportTest(w http.ResponseWriter, r *http.Request) {
+	if s.d.SendReport == nil {
+		apiError(w, http.StatusServiceUnavailable, "Reports cannot be sent from here.", "Use the dashboard of the running service.")
+		return
+	}
+	var in struct {
+		Date string `json:"date"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4<<10)).Decode(&in); err != nil {
+		apiError(w, http.StatusBadRequest, "Send a JSON body, for example {}.", "")
+		return
+	}
+	if in.Date == "" {
+		in.Date = s.today()
+	} else if _, _, err := aggregate.ParseDay(s.d.Loc, in.Date); err != nil {
+		apiError(w, http.StatusBadRequest, "date must be YYYY-MM-DD.", "Use dates like 2026-10-09.")
+		return
+	}
+	s.reportMu.Lock()
+	if wait := 30*time.Second - s.d.Now().Sub(s.lastReport); wait > 0 && !s.lastReport.IsZero() {
+		s.reportMu.Unlock()
+		apiError(w, http.StatusTooManyRequests, "A report was sent a moment ago.", fmt.Sprintf("Try again in %d seconds.", int(wait.Seconds())+1))
+		return
+	}
+	s.lastReport = s.d.Now()
+	s.reportMu.Unlock()
+
+	n, err := s.d.SendReport(r.Context(), in.Date, "")
+	if err != nil {
+		s.reportMu.Lock()
+		s.lastReport = time.Time{}
+		s.reportMu.Unlock()
+		s.d.Log.Warn("test report not sent", "err", err.Error())
+		hint := "Check the API key, the sender address (its domain must be verified in Resend) and the recipients."
+		if strings.Contains(err.Error(), "cannot reach Resend") {
+			hint = "Check that this PC can reach api.resend.com."
+		}
+		apiError(w, http.StatusBadGateway, "The report was not sent: "+err.Error(), hint)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"sent_to": n, "date": in.Date})
 }

@@ -47,6 +47,35 @@ func strKey(get func(*Config) *string) keySpec {
 	}
 }
 
+// listKey is a list of values written as one comma- or space-separated string.
+func listKey(get func(*Config) *[]string) keySpec {
+	return keySpec{
+		get: func(c *Config) string { return strings.Join(*get(c), ",") },
+		set: func(c *Config, v string) error {
+			*get(c) = SplitList(v)
+			return nil
+		},
+	}
+}
+
+// SplitList splits "a@x.org, b@y.org" (commas, spaces or new lines) into its
+// non-empty parts.
+func SplitList(v string) []string {
+	out := []string{}
+	for _, f := range strings.FieldsFunc(v, func(r rune) bool { return r == ',' || r == ';' || r == ' ' || r == '\t' || r == '\n' || r == '\r' }) {
+		out = append(out, f)
+	}
+	return out
+}
+
+// secretKeys hold credentials or private addresses: their values are never
+// printed by `config get`/`config list`, returned by the dashboard or written to
+// the audit log.
+var secretKeys = map[string]bool{"alerts.ntfy_url": true, "alerts.webhook_url": true, "report.resend_api_key": true}
+
+// IsSecret reports whether a key's value must not be shown or logged.
+func IsSecret(key string) bool { return secretKeys[key] }
+
 var keyTable = map[string]keySpec{
 	"data_dir":            {get: func(c *Config) string { return c.DataDir }},
 	"db_name":             {get: func(c *Config) string { return c.DBName }},
@@ -102,6 +131,12 @@ var keyTable = map[string]keySpec{
 	"alerts.notify_on_service_stop": {get: func(c *Config) string {
 		return strconv.FormatBool(c.Alerts.NotifyOnServiceStop)
 	}},
+
+	"report.enabled":        boolKey(func(c *Config) *bool { return &c.Report.Enabled }),
+	"report.send_at":        strKey(func(c *Config) *string { return &c.Report.SendAt }),
+	"report.resend_api_key": strKey(func(c *Config) *string { return &c.Report.ResendAPIKey }),
+	"report.from":           strKey(func(c *Config) *string { return &c.Report.From }),
+	"report.recipients":     listKey(func(c *Config) *[]string { return &c.Report.Recipients }),
 }
 
 // Get returns one value as text.

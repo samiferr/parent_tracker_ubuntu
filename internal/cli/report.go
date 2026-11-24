@@ -1,12 +1,15 @@
 package cli
 
 import (
+	"context"
 	"encoding/csv"
 	"fmt"
 	"strconv"
+	"strings"
 	"text/tabwriter"
 
 	"github.com/samiferr/parent_tracker_ubuntu/internal/aggregate"
+	"github.com/samiferr/parent_tracker_ubuntu/internal/report"
 	"github.com/samiferr/parent_tracker_ubuntu/internal/view"
 )
 
@@ -27,6 +30,9 @@ func dash(ms int64) string {
 }
 
 func (a *App) cmdReport(args []string) int {
+	if len(args) > 0 && args[0] == "email" {
+		return a.cmdReportEmail(args[1:])
+	}
 	fs, cfgPath := a.newFlags("report")
 	userName := fs.String("user", "", "monitored user")
 	from := fs.String("from", "", "first day, YYYY-MM-DD (default: 6 days ago)")
@@ -200,4 +206,54 @@ func gapM(ms int64) string {
 		return "—"
 	}
 	return view.FmtHM(ms)
+}
+
+// cmdReportEmail sends the daily report e-mail now, through Resend, to every
+// address in report.recipients. It works whether or not report.enabled is on,
+// so the settings can be tried before the schedule is switched on.
+func (a *App) cmdReportEmail(args []string) int {
+	fs, cfgPath := a.newFlags("report email")
+	date := fs.String("date", "", "the day to report, YYYY-MM-DD (default: yesterday)")
+	preview := fs.Bool("preview", false, "print the plain-text report instead of sending it")
+	if _, err := parse(fs, args); err != nil {
+		return 2
+	}
+	cfg, err := a.loadConfig(*cfgPath)
+	if err != nil {
+		return a.errorf("%v", err)
+	}
+	day := *date
+	if day == "" {
+		ds, _ := aggregate.DayBounds(a.Loc, a.Now().UnixMilli())
+		day = aggregate.DayString(a.Loc, ds-1)
+	} else if _, _, err := aggregate.ParseDay(a.Loc, day); err != nil {
+		return a.errorf("--date must look like 2026-10-07")
+	}
+	db, err := a.openRead(cfg)
+	if err != nil {
+		return a.errorf("%v", err)
+	}
+	defer db.Close()
+	if *preview {
+		rep, err := report.Build(db, cfg, a.Loc, a.Now, day, "")
+		if err != nil {
+			return a.errorf("%v", err)
+		}
+		text, err := rep.Text()
+		if err != nil {
+			return a.errorf("%v", err)
+		}
+		a.printf("Subject: %s\n\n%s", rep.Subject(), text)
+		return 0
+	}
+	if p := cfg.ReportProblems(); len(p) > 0 {
+		return a.errorf("the report cannot be sent: %s.\nSet them with: sudo parent-tracker config set report.<key> <value>", strings.Join(p, "; "))
+	}
+	s := &report.Scheduler{DB: db, Cfg: cfg.Clone, Loc: a.Loc, Now: a.Now, Mailer: a.Mailer}
+	n, err := s.Send(context.Background(), day, "")
+	if err != nil {
+		return a.errorf("the report was not sent: %v", err)
+	}
+	a.printf("The report for %s was sent to %d recipient%s.\n", day, n, map[bool]string{true: "", false: "s"}[n == 1])
+	return 0
 }

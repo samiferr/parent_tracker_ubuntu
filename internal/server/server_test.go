@@ -3,8 +3,10 @@ package server
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/csv"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/cookiejar"
@@ -148,6 +150,9 @@ func TestAPIRequiresAuthentication(t *testing.T) {
 	resp, _ := r.do("PUT", "/api/settings", map[string]any{"values": map[string]any{"server.live": false}})
 	if resp.StatusCode != 401 {
 		t.Errorf("PUT settings unauthenticated = %d", resp.StatusCode)
+	}
+	if resp, _ := r.do("POST", "/api/report/test", map[string]any{}); resp.StatusCode != 401 {
+		t.Errorf("POST report/test unauthenticated = %d", resp.StatusCode)
 	}
 	resp, b := r.do("GET", "/api/session", nil)
 	var s sessionResp
@@ -787,5 +792,95 @@ func TestAuditLogFilterAndExport(t *testing.T) {
 		if resp.StatusCode != 400 || !strings.Contains(string(b), `"error"`) {
 			t.Errorf("GET /api/audit?%s = %d %s, want 400", q, resp.StatusCode, b)
 		}
+	}
+}
+
+func TestReportSettingsKeepTheAPIKeySecret(t *testing.T) {
+	r := newRig(t)
+	r.login()
+	resp, b := r.do("PUT", "/api/settings", map[string]any{"values": map[string]any{
+		"report.enabled": true, "report.send_at": "06:30", "report.from": "Parent Tracker <reports@example.com>",
+		"report.recipients": []string{"mum@example.com", "dad@example.com"}, "report.resend_api_key": "re_SECRET_abc"}})
+	if resp.StatusCode != 200 {
+		t.Fatalf("PUT = %d %s", resp.StatusCode, b)
+	}
+	saved, _ := config.Load(r.cfgPath)
+	if !saved.Report.Enabled || saved.Report.SendAt != "06:30" || saved.Report.ResendAPIKey != "re_SECRET_abc" || len(saved.Report.Recipients) != 2 {
+		t.Fatalf("saved = %+v", saved.Report)
+	}
+	if strings.Contains(string(b), "re_SECRET_abc") {
+		t.Fatal("the API key must never be returned")
+	}
+	var got struct {
+		Values     map[string]any
+		SecretsSet map[string]bool `json:"secrets_set"`
+		Report     struct {
+			Problems []string
+			CanTest  bool `json:"can_test"`
+		}
+	}
+	decode(t, b, &got)
+	if !got.SecretsSet["report.resend_api_key"] || got.Values["report.resend_api_key"] != "" || len(got.Report.Problems) != 0 || got.Report.CanTest {
+		t.Fatalf("settings = %s", b)
+	}
+	if rs, _ := got.Values["report.recipients"].([]any); len(rs) != 2 || rs[0] != "mum@example.com" {
+		t.Fatalf("recipients = %v", got.Values["report.recipients"])
+	}
+	ev, _ := r.db.AuditEvents(0, 1<<60, 10)
+	if len(ev) != 1 || strings.Contains(ev[0].Detail, "re_SECRET_abc") || !strings.Contains(ev[0].Detail, "report.resend_api_key (value not logged)") {
+		t.Fatalf("audit = %+v", ev)
+	}
+
+	// an empty key keeps the saved one; recipients may also come as text
+	resp, b = r.do("PUT", "/api/settings", map[string]any{"values": map[string]any{"report.resend_api_key": "", "report.recipients": "mum@example.com\ngran@example.net"}})
+	saved, _ = config.Load(r.cfgPath)
+	if resp.StatusCode != 200 || saved.Report.ResendAPIKey != "re_SECRET_abc" || len(saved.Report.Recipients) != 2 || saved.Report.Recipients[1] != "gran@example.net" {
+		t.Fatalf("%d %s %+v", resp.StatusCode, b, saved.Report)
+	}
+	for name, vals := range map[string]map[string]any{
+		"bad recipient": {"report.recipients": []string{"nope"}},
+		"bad time":      {"report.send_at": "25:00"},
+		"bad sender":    {"report.from": "no address"},
+		"wrong type":    {"report.recipients": []int{1}},
+	} {
+		if resp, b := r.do("PUT", "/api/settings", map[string]any{"values": vals}); resp.StatusCode != 400 {
+			t.Errorf("%s: %d %s", name, resp.StatusCode, b)
+		}
+	}
+}
+
+func TestReportTestSend(t *testing.T) {
+	r := newRig(t)
+	r.login()
+	if resp, _ := r.do("POST", "/api/report/test", map[string]any{}); resp.StatusCode != 503 {
+		t.Fatalf("without a sender = %d", resp.StatusCode)
+	}
+	var dates []string
+	fail := error(nil)
+	r.srv.d.SendReport = func(_ context.Context, date, idem string) (int, error) {
+		if fail != nil {
+			return 0, fail
+		}
+		dates = append(dates, date)
+		return 2, nil
+	}
+	resp, b := r.do("POST", "/api/report/test", map[string]any{})
+	if resp.StatusCode != 200 || !strings.Contains(string(b), `"sent_to":2`) || len(dates) != 1 || dates[0] != "2026-10-11" {
+		t.Fatalf("test send = %d %s %v", resp.StatusCode, b, dates)
+	}
+	if resp, b := r.do("POST", "/api/report/test", map[string]any{}); resp.StatusCode != 429 || !strings.Contains(string(b), "Try again") {
+		t.Fatalf("a second send at once = %d %s", resp.StatusCode, b)
+	}
+	r.now = r.now.Add(time.Minute)
+	if resp, _ := r.do("POST", "/api/report/test", map[string]any{"date": "11/10/2026"}); resp.StatusCode != 400 {
+		t.Fatalf("bad date = %d", resp.StatusCode)
+	}
+	fail = errors.New("rejected by Resend (403): domain not verified")
+	if resp, b := r.do("POST", "/api/report/test", map[string]any{"date": "2026-10-10"}); resp.StatusCode != 502 || !strings.Contains(string(b), "domain not verified") {
+		t.Fatalf("failure = %d %s", resp.StatusCode, b)
+	}
+	fail = nil
+	if resp, _ := r.do("POST", "/api/report/test", map[string]any{"date": "2026-10-10"}); resp.StatusCode != 200 || dates[1] != "2026-10-10" {
+		t.Fatalf("a failure must not block the next try: %d", resp.StatusCode)
 	}
 }

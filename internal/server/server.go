@@ -8,6 +8,7 @@
 package server
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -17,6 +18,7 @@ import (
 	"net/http"
 	"path"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/samiferr/parent_tracker_ubuntu/internal/config"
@@ -40,6 +42,9 @@ type Deps struct {
 	Log     *slog.Logger
 	Version string
 	Demo    bool
+	// SendReport e-mails the daily report for a date now and returns the
+	// number of recipients; nil disables the "send a test report" action.
+	SendReport func(ctx context.Context, date, idempotencyKey string) (int, error)
 	// Files overrides the embedded front end (tests).
 	Files fs.FS
 }
@@ -51,6 +56,9 @@ type Server struct {
 	auth  *authState
 	files fs.FS
 	etags map[string]string
+
+	reportMu   sync.Mutex
+	lastReport time.Time
 }
 
 // New builds the server.
@@ -105,6 +113,7 @@ func (s *Server) Handler() http.Handler {
 	api("GET /api/health", s.handleHealth)
 	api("GET /api/settings", s.handleSettingsGet)
 	api("PUT /api/settings", s.handleSettingsPut)
+	api("POST /api/report/test", s.handleReportTest)
 	api("GET /api/about", s.handleAbout)
 
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {

@@ -49,6 +49,7 @@ var auditTitles = map[string]struct{ title, variant string }{
 	model.AuditClockSkew:         {"Clock changed", "notice"},
 	model.AuditDisclosureAck:     {"Disclosure acknowledged", "informative"},
 	model.AuditSetup:             {"Setup run", "informative"},
+	model.AuditReportSent:        {"Daily report e-mailed", "informative"},
 	model.AuditError:             {"Service error", "negative"},
 	model.AuditWarning:           {"Service warning", "notice"},
 }

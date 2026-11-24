@@ -337,6 +337,11 @@ func TestDiffSnapshots(t *testing.T) {
 	b.Alerts.NtfyURL = "https://ntfy.sh/very-private"
 	b.Server.PasswordHash = "$2a$new"
 	b.SampleInterval = config.Duration(10 * time.Second)
+	b.Report.ResendAPIKey = "re_very_SECRET"
+	b.Report.Recipients = []string{"mum@example.com"}
+	if strings.Contains(Snapshot(b)["report.resend_api_key"], "SECRET") {
+		t.Fatal("the stored snapshot must not hold the API key")
+	}
 	got := map[string]string{}
 	var all []string
 	for _, c := range DiffSnapshots(Snapshot(a), Snapshot(b)) {
@@ -348,10 +353,12 @@ func TestDiffSnapshots(t *testing.T) {
 		!strings.Contains(got[model.AuditCollectorDisabled], "collectors.app: true -> false") ||
 		!strings.Contains(joined, "collectors.window_title: false -> true") ||
 		!strings.Contains(joined, "sample_interval: 5s -> 10s") ||
-		!strings.Contains(joined, "dashboard password changed") {
+		!strings.Contains(joined, "dashboard password changed") ||
+		!strings.Contains(joined, "report.resend_api_key changed (value not logged)") ||
+		!strings.Contains(joined, "report.recipients:  -> mum@example.com") {
 		t.Fatalf("diff = %s", joined)
 	}
-	if strings.Contains(joined, "very-private") || strings.Contains(joined, "$2a$new") {
+	if strings.Contains(joined, "very-private") || strings.Contains(joined, "$2a$new") || strings.Contains(joined, "SECRET") {
 		t.Fatalf("a secret leaked into the audit detail: %s", joined)
 	}
 	if len(DiffSnapshots(Snapshot(a), Snapshot(a.Clone()))) != 0 {
